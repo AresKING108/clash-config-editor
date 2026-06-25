@@ -20,7 +20,10 @@
 
     <el-card class="sync-card">
       <template #header>
-        <span>从路由器拉取配置</span>
+        <div class="card-header">
+          <span>从路由器拉取配置</span>
+          <el-tag v-if="activeConfig" type="info" size="small">当前激活: {{ activeConfig }}</el-tag>
+        </div>
       </template>
       <p style="color: #909399; font-size: 13px">把路由器上的 subconverter 模板和 OpenClash 配置拉取到本地编辑器</p>
       <el-space>
@@ -90,6 +93,7 @@ const statusType = ref('info')
 const connected = ref(false)
 const routerInfo = ref('')
 const subconverterVersion = ref('')
+const activeConfig = ref('')
 const checking = ref(false)
 const pulling = ref(false)
 const pushing = ref(false)
@@ -115,7 +119,6 @@ const checkStatus = async () => {
       connected.value = false
       routerInfo.value = '连接失败: ' + (res.error || '未知错误')
     }
-    // 检查 subconverter
     const svRes = await routerAPI.subconverterStatus()
     subconverterVersion.value = svRes.version || '无法连接'
   } catch (e) {
@@ -131,7 +134,13 @@ const pullConfig = async (type) => {
   try {
     const res = await routerAPI.pull(type)
     if (res.success) {
-      showMessage(`已拉取: ${res.pulled}`, 'success')
+      // 提取激活配置名（格式: "active:糖果, openclash"）
+      const parts = res.pulled.split(', ')
+      const activePart = parts.find(p => p.startsWith('active:'))
+      if (activePart) {
+        activeConfig.value = activePart.replace('active:', '')
+      }
+      showMessage(`已拉取: ${parts.filter(p => !p.startsWith('active:')).join(', ')}`, 'success')
     } else {
       showMessage('拉取失败: ' + (res.error || ''), 'error')
     }
@@ -149,9 +158,9 @@ const pushSubconverter = async () => {
       { local: 'subconverter_groups.txt', remote: '/etc/subconverter/groups.txt' },
       { local: 'subconverter_pref.ini', remote: '/etc/subconverter/pref.ini' },
     ]
-    const res = await routerAPI.push(files, true)
+    const res = await routerAPI.push(files, false)
     if (res.success) {
-      showMessage(`已推送 ${res.pushed} 个文件，重载: ${res.reloaded}`, 'success')
+      showMessage(`已推送 ${res.pushed} 个文件`, 'success')
     } else {
       showMessage('推送失败: ' + (res.error || ''), 'error')
     }
@@ -165,8 +174,10 @@ const pushSubconverter = async () => {
 const pushOpenClash = async () => {
   pushing.value = true
   try {
+    // 推送到 /etc/openclash/config/ 目录
     const files = [
-      { local: 'openclash_config.yaml', remote: '/etc/openclash/config.yaml' },
+      { local: 'openclash_新模板.yaml', remote: '/etc/openclash/config/新模板.yaml' },
+      { local: 'openclash_糖果.yaml', remote: '/etc/openclash/config/糖果.yaml' },
     ]
     const res = await routerAPI.push(files, true)
     if (res.success) {
@@ -200,10 +211,13 @@ const reloadService = async (service) => {
 const oneClickDeploy = async () => {
   deploying.value = true
   try {
-    // Push subconverter templates first
+    // 推送 subconverter 模板 + OpenClash 配置 + 触发重载
     const files = [
       { local: 'subconverter_groups.txt', remote: '/etc/subconverter/groups.txt' },
     ]
+    if (activeConfig.value) {
+      files.push({ local: `openclash_${activeConfig.value}.yaml`, remote: `/etc/openclash/config/${activeConfig.value}.yaml` })
+    }
     const res = await routerAPI.push(files, true)
     if (res.success) {
       showMessage(`🚀 部署成功！已推送 ${res.pushed} 个文件，服务已重载`, 'success')

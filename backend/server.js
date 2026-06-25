@@ -991,10 +991,19 @@ app.post('/api/router/pull', async (req, res) => {
       r.push('subconverter');
     }
     if (type === 'openclash' || type === 'all') {
-      const ocRes = await runSSH('ls /etc/openclash/*.yaml /etc/openclash/*.yml 2>/dev/null || true', 10000);
-      const files = ocRes.stdout.trim().split('\n').filter(Boolean);
-      for (const f of files) {
-        await scpFrom(f, configDir + '/' + f.split('/').pop(), 15000);
+      // 获取当前激活的配置名
+      const activeRes = await runSSH('basename $(readlink /etc/openclash/cache.db 2>/dev/null) .db 2>/dev/null || echo unknown', 10000);
+      const activeName = activeRes.stdout.trim();
+      r.push('active:' + activeName);
+      // 拉取 /etc/openclash/config/ 下的所有 YAML 配置
+      const configFiles = await runSSH('ls /etc/openclash/config/*.yaml /etc/openclash/config/*.yml 2>/dev/null || true', 10000);
+      for (const f of configFiles.stdout.trim().split('\n').filter(Boolean)) {
+        await scpFrom(f, configDir + '/openclash_' + f.split('/').pop(), 15000);
+      }
+      // 也拉取根目录的快捷副本
+      const rootYamls = await runSSH('ls /etc/openclash/*.yaml 2>/dev/null || true', 10000);
+      for (const f of rootYamls.stdout.trim().split('\n').filter(Boolean)) {
+        await scpFrom(f, configDir + '/openclash_root_' + f.split('/').pop(), 15000);
       }
       r.push('openclash');
     }
