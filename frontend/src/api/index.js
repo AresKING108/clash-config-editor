@@ -49,4 +49,13 @@ export const configAPI = {
   validate: (config) => api.post('/config/validate', { config })
 }
 
+// 路由器同步 API
+export const routerAPI = {
+  status: () => api.get('/router/status'),
+  pull: (type) => api.post('/router/pull', { type }),
+  push: (files, triggerReload) => api.post('/router/push', { files, triggerReload }),
+  reload: (service) => api.post('/router/reload', { service }),
+  subconverterStatus: () => api.get('/router/subconverter-status'),
+}
+
 export default api

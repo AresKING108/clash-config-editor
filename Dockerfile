@@ -22,6 +22,9 @@ COPY backend/ ./
 # 生产阶段
 FROM node:18-alpine
 
+# 安装 SSH 客户端，用于路由器同步
+RUN apk add --no-cache openssh-client
+
 WORKDIR /app
 
 # 复制后端代码

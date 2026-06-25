@@ -1,0 +1,22 @@
+🔰 节点选择`select`[]♻️ 自动选择`[]🔯 故障转移`[]🔮 负载均衡`[]🇭🇰 香港节点`[]🇨🇳 台湾节点`[]🇸🇬 狮城节点`[]🇯🇵 日本节点`[]🇺🇲 美国节点`[]🇰🇷 韩国节点`[]🚀 手动切换`[]🎯 全球直连`.*
+♻️ 自动选择`url-test`.*`http://www.gstatic.com/generate_204`300,,50
+🔯 故障转移`fallback`.*`http://www.gstatic.com/generate_204`180
+🔮 负载均衡`load-balance`.*`http://www.gstatic.com/generate_204`300
+🚀 手动切换`select`.*
+🇭🇰 香港节点`select`(港|hk|HK|HKC|HKT|HKBN|PCCW)`.*
+🇨🇳 台湾节点`select`(台|tw|TW|CHT|TFN)`.*
+🇸🇬 狮城节点`select`(新|坡|狮|sg|SG)`.*
+🇯🇵 日本节点`select`(日|jp|JP|NTT|KDDI|BBTV)`.*
+🇺🇲 美国节点`select`(美|us|US|United States)`.*
+🇰🇷 韩国节点`select`(韩|kr|KR)`.*
+🎯 全球直连`select`[]DIRECT
+🎥 NETFLIX`select`[]🔰 节点选择`[]♻️ 自动选择`[]🎯 全球直连`.*
+🌍 国外媒体`select`[]🔰 节点选择`[]♻️ 自动选择`[]🎯 全球直连`.*
+🌏 国内媒体`select`[]🎯 全球直连`(港|hk|HK|台|tw|TW)`[]🔰 节点选择
+Ⓜ️ 微软服务`select`[]🎯 全球直连`[]🔰 节点选择`.*
+📲 电报信息`select`[]🔰 节点选择`[]🎯 全球直连`.*
+🍎 苹果服务`select`[]🔰 节点选择`[]🎯 全球直连`[]♻️ 自动选择`.*
+🛑 全球拦截`select`[]REJECT`[]DIRECT
+⛔️ 广告拦截`select`[]🛑 全球拦截`[]🎯 全球直连`[]🔰 节点选择
+🚫 运营劫持`select`[]🛑 全球拦截`[]🎯 全球直连`[]🔰 节点选择
+🐟 漏网之鱼`select`[]🔰 节点选择`[]🎯 全球直连`[]♻️ 自动选择`.*

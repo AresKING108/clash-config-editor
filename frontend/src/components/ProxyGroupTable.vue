@@ -2,14 +2,27 @@
   <div class="proxy-group-table">
     <div class="table-header">
       <el-button type="primary" :icon="Plus" @click="showAddDialog">添加代理组</el-button>
+      <el-tag type="info">拖拽左侧手柄可排序</el-tag>
     </div>
 
-    <el-table :data="proxyGroups" style="width: 100%">
+    <el-table :data="proxyGroups" style="width: 100%" row-key="name">
+      <el-table-column label="#" width="50">
+        <template #default="{ $index }">
+          <span class="drag-handle" title="拖拽排序">⠿</span>
+          <span style="margin-left: 4px">{{ $index + 1 }}</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="name" label="名称" width="200" />
       <el-table-column prop="type" label="类型" width="120" />
       <el-table-column label="代理列表" min-width="350">
         <template #default="{ row }">
-          <el-tag v-for="proxy in row.proxies" :key="proxy" size="small" style="margin-right: 4px">
+          <el-tag
+            v-for="proxy in row.proxies"
+            :key="proxy"
+            size="small"
+            :type="proxy === 'DIRECT' ? 'success' : proxy === 'REJECT' ? 'danger' : ''"
+            style="margin-right: 4px; margin-bottom: 2px"
+          >
             {{ proxy }}
           </el-tag>
         </template>
@@ -29,6 +42,9 @@
       :close-on-click-modal="false"
     >
       <el-form :model="currentGroup" label-width="120px">
+        <el-form-item label="名称">
+          <el-input v-model="currentGroup.name" placeholder="策略组名称" />
+        </el-form-item>
         <el-form-item label="类型">
           <el-select v-model="currentGroup.type" @change="onTypeChange" :disabled="isEdit">
             <el-option
@@ -72,7 +88,8 @@
             v-else-if="field.type === 'array' && field.key === 'proxies'"
             v-model="currentGroup[field.key]"
             multiple
-            placeholder="选择代理"
+            placeholder="选择代理（可搜索）"
+            filterable
             style="width: 100%"
           >
             <el-option
@@ -118,13 +135,13 @@ const availableProxies = computed(() => {
   const groups = (props.config['proxy-groups'] || [])
     .filter(g => g.name !== currentGroup.value.name)
     .map(g => g.name)
-  return [...proxies, ...groups]
+  return [...proxies, ...groups, 'DIRECT', 'REJECT', 'PASS']
 })
 
 const onTypeChange = () => {
   const type = groupTypes.value.find(t => t.type === currentGroup.value.type)
   currentFields.value = type?.fields || []
-  
+
   const newGroup = { type: currentGroup.value.type }
   currentFields.value.forEach(field => {
     if (field.default !== undefined) {
@@ -133,13 +150,16 @@ const onTypeChange = () => {
       newGroup[field.key] = []
     }
   })
+  // 保留名称
+  if (currentGroup.value.name) newGroup.name = currentGroup.value.name
   currentGroup.value = newGroup
 }
 
 const showAddDialog = () => {
   isEdit.value = false
-  currentGroup.value = { type: 'select' }
-  onTypeChange()
+  currentGroup.value = { type: 'select', name: '' }
+  const type = groupTypes.value.find(t => t.type === 'select')
+  currentFields.value = type?.fields || []
   dialogVisible.value = true
 }
 
@@ -157,7 +177,7 @@ const saveGroup = () => {
     ElMessage.error('请填写代理组名称')
     return
   }
-  
+
   if (!currentGroup.value.proxies || currentGroup.value.proxies.length === 0) {
     ElMessage.error('请选择至少一个代理')
     return
@@ -169,7 +189,7 @@ const saveGroup = () => {
   } else {
     newGroups.push({ ...currentGroup.value })
   }
-  
+
   emit('update', 'proxy-groups', newGroups)
   dialogVisible.value = false
   ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
@@ -191,5 +211,16 @@ const deleteGroup = (index) => {
   display: flex;
   justify-content: space-between;
   margin-bottom: 16px;
+  align-items: center;
+}
+
+.drag-handle {
+  cursor: grab;
+  color: #999;
+  font-size: 16px;
+  user-select: none;
+}
+.drag-handle:active {
+  cursor: grabbing;
 }
 </style>
