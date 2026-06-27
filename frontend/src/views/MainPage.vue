@@ -48,7 +48,10 @@
               <el-button type="warning" @click="pushTemplates" :loading="pushTplLoading">推送模板</el-button>
             </el-space>
           </div>
-          <div class="tpl-editor-area">
+          <div v-if="selectedTemplate === 'groups.txt'" class="tpl-editor-area" style="overflow:auto;background:#fff;padding:12px">
+            <GroupsEditor v-model="tplContent" @save="onGroupsSave" />
+          </div>
+          <div v-else class="tpl-editor-area">
             <textarea v-model="tplContent" class="code-textarea" spellcheck="false" placeholder="点击「拉取模板」获取 Subconverter 模板文件..."></textarea>
           </div>
           <div class="tpl-bottom">
@@ -88,6 +91,7 @@ import { UploadFilled } from '@element-plus/icons-vue'
 import { routerAPI, fileAPI } from '@/api'
 import { useConfigStore } from '@/stores/config'
 import ConfigEditor from './ConfigEditor.vue'
+import GroupsEditor from '@/components/GroupsEditor.vue'
 
 const configStore = useConfigStore()
 
@@ -112,6 +116,11 @@ const tplContent = ref('')
 // 上传
 const importUrl = ref('')
 const urlLoading = ref(false)
+
+const onGroupsSave = (serialized) => {
+  tplContent.value = serialized
+  ElMessage.success('策略组已更新')
+}
 
 // ===== 刷新状态 =====
 const refreshAllStatus = async () => {
