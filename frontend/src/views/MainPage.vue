@@ -186,7 +186,16 @@ const applyOpenClash = async () => {
 }
 
 // ===== Subconverter 模板 =====
-const refreshTemplateList = () => { templateList.value = ['groups.txt', 'pref.ini', 'emoji.txt', 'all_base.tpl'] }
+const refreshTemplateList = async () => {
+    try {
+      const resp = await fetch("/api/files/list");
+      const data = await resp.json();
+      const files = (data.files || []).filter(f => f.name.endsWith(".txt") || f.name.endsWith(".tpl") || f.name.endsWith(".ini"));
+      templateList.value = files.map(f => f.name).sort();
+    } catch {
+      templateList.value = ['groups.txt', 'pref.ini', 'emoji.txt', 'all_base.tpl'];
+    }
+  }
 
 const pullTemplates = async () => {
   tplLoading.value = true
