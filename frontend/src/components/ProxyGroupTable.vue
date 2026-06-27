@@ -157,6 +157,8 @@ const saveGroup = () => {
     const oldName = newGroups[editIndex.value].name
     newGroups[editIndex.value] = data
     if (oldName !== data.name) {
+      // 先设锁，再发规则更新（防止规则更新触发 proxy-groups 回写）
+      _syncing=true
       // 更新 rules 中的引用
       const allRules = props.config.rules || []
       const updatedRules = allRules.map(r => {
@@ -179,9 +181,10 @@ const saveGroup = () => {
       }
     }
   } else {
+    _syncing=true
     newGroups.push(data)
   }
-  localGroups.value = newGroups; _syncing=true; emit("update", "proxy-groups", newGroups); _syncing=false
+  localGroups.value = newGroups; emit("update", "proxy-groups", newGroups); _syncing=false
   dialogVisible.value = false; ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
 }
 
