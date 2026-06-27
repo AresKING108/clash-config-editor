@@ -7,39 +7,80 @@
           查找重复规则
         </el-button>
       </el-space>
-      <el-input
-        v-model="searchText"
-        placeholder="搜索规则 (类型/域名/策略)"
-        clearable
-        style="width: 320px"
-        :prefix-icon="Search"
-      />
+      <el-input v-model="searchText" placeholder="搜索规则" clearable style="width: 320px" :prefix-icon="Search" />
     </div>
 
-    <div class="table-scroll">
-      <el-table :data="pageRules" style="width: 100%" highlight-current-row size="small" max-height="calc(100vh - 260px)">
-        <el-table-column type="index" label="#" width="50" />
-        <el-table-column label="规则" min-width="450">
-          <template #default="{ row }">
-            <el-tag size="small">{{ row.type }}</el-tag>
-            <code v-if="row.value" style="margin: 0 8px; color:#409eff; font-size:13px">{{ row.value }}</code>
-            <el-tag size="small" :type="row.policy === 'DIRECT' ? 'success' : row.policy === 'REJECT' ? 'danger' : ''">
-              {{ row.policy }}
+    <el-table :data="pageRules" style="width:100%" highlight-current-row size="small" max-height="calc(100vh - 260px)">
+      <el-table-column type="index" label="#" width="50" />
+      <el-table-column label="规则" min-width="400">
+        <template #default="{ row }">
+          <el-tag size="small">{{ row.type }}</el-tag>
+          <code v-if="row.value" style="margin:0 8px;color:#409eff;font-size:13px">{{ row.value }}</code>
+          <el-tag size="small" :type="row.policy==='DIRECT'?'success':row.policy==='REJECT'?'danger':''">{{ row.policy }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="280" fixed="right">
+        <template #default="{ row }">
+          <el-space>
+            <el-button size="small" @click="editRule(row)">编辑</el-button>
+            <el-button size="small" @click="moveUp(row)">上移</el-button>
+            <el-button size="small" @click="moveDown(row)">下移</el-button>
+            <el-button size="small" type="danger" @click="deleteRule(row)">删除</el-button>
+          </el-space>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <!-- 添加/编辑规则对话框 -->
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑规则' : '添加规则'" width="500px" :close-on-click-modal="false">
+      <el-form :model="currentRule" label-width="100px">
+        <el-form-item label="规则类型">
+          <el-select v-model="currentRule.type" @change="onRuleTypeChange" style="width:100%" filterable>
+            <el-option v-for="rt in ruleTypes" :key="rt.type" :label="rt.label" :value="rt.type" />
+          </el-select>
+        </el-form-item>
+        <el-form-item label="匹配值" v-if="needsValue">
+          <el-input v-model="currentRule.value" placeholder="域名/IP/关键词" />
+        </el-form-item>
+        <el-form-item label="策略">
+          <el-select v-model="currentRule.policy" placeholder="选择策略" style="width:100%" filterable>
+            <el-option label="DIRECT" value="DIRECT" />
+            <el-option label="REJECT" value="REJECT" />
+            <el-option v-for="g in proxyGroups" :key="g.name" :label="g.name" :value="g.name" />
+          </el-select>
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" @click="saveRule">保存</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 重复规则对话框 -->
+    <el-dialog v-model="dupDialogVisible" title="重复规则" width="700px" :close-on-click-modal="false">
+      <template v-if="dupGroups.length">
+        <p style="color:#909399;margin-bottom:12px">找到 {{ dupCount }} 条重复规则：</p>
+        <div v-for="(g, gi) in dupGroups" :key="gi" class="dup-group">
+          <div class="dup-header">
+            <el-tag size="small">{{ g.type }}</el-tag>
+            <code v-if="g.value" style="margin:0 8px">{{ g.value }}</code>
+            <el-tag size="small" type="success">{{ g.policy }}</el-tag>
+            <span style="margin-left:12px;color:#e6a23c">重复 {{ g.count }} 次</span>
+          </div>
+          <div class="dup-indices">
+            <el-tag v-for="(idx, ii) in g.indices" :key="ii" size="small"
+              :type="ii === 0 ? 'success' : 'danger'"
+              style="cursor:pointer;margin:2px" @click="removeDup(idx)">
+              #{{ idx + 1 }}{{ ii === 0 ? ' (保留)' : ' ✕' }}
             </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column label="操作" width="210" fixed="right">
-          <template #default="{ row }">
-            <el-space>
-              <el-button size="small" @click="moveUp(row)">上移</el-button>
-              <el-button size="small" @click="moveDown(row)">下移</el-button>
-              <el-button size="small" type="danger" @click="deleteRule(row)">删除</el-button>
-            </el-space>
-          </template>
-        </el-table-column>
-      </el-table>
-    </div>
-    <!-- ... dialogs same as before ... -->
+          </div>
+        </div>
+        <div style="margin-top:16px">
+          <el-button type="danger" @click="removeAllDups">删除全部重复（每组保留第1条）</el-button>
+        </div>
+      </template>
+      <p v-else style="color:#67c23a;font-size:16px">✅ 没有找到重复规则</p>
+    </el-dialog>
   </div>
 </template>
 
@@ -54,6 +95,8 @@ const emit = defineEmits(['update'])
 const ruleTypes = computed(() => props.category.ruleTypes || [])
 const searchText = ref('')
 const dialogVisible = ref(false)
+const isEdit = ref(false)
+const editIdx = ref(-1)
 const currentRule = ref({ type: 'DOMAIN-SUFFIX', value: '', policy: 'DIRECT' })
 const dupDialogVisible = ref(false)
 const dupGroups = ref([])
@@ -69,7 +112,7 @@ const parseRule = (ruleStr) => {
   return { type, value: parts[1] || '', policy: parts[2] || 'DIRECT' }
 }
 
-const ruleToKey = (r) => `${r.type},${r.value||''},${r.policy}`
+const formatRule = (rule) => rule.value ? `${rule.type},${rule.value},${rule.policy}` : `${rule.type},${rule.policy}`
 
 const parsedRules = computed(() => allRules.value.map(parseRule))
 
@@ -77,9 +120,7 @@ const pageRules = computed(() => {
   if (!searchText.value) return parsedRules.value
   const q = searchText.value.toLowerCase()
   return parsedRules.value.filter(r =>
-    r.type.toLowerCase().includes(q) ||
-    (r.value && r.value.toLowerCase().includes(q)) ||
-    r.policy.toLowerCase().includes(q)
+    r.type.toLowerCase().includes(q) || (r.value && r.value.toLowerCase().includes(q)) || r.policy.toLowerCase().includes(q)
   )
 })
 
@@ -88,10 +129,7 @@ const needsValue = computed(() => {
   return rt?.hasValue !== false
 })
 
-const formatRule = (rule) => rule.value ? `${rule.type},${rule.value},${rule.policy}` : `${rule.type},${rule.policy}`
-
 const findRealIndex = (row) => {
-  // 用规则内容在 allRules 里找真实索引
   const key = formatRule(row)
   return allRules.value.findIndex(r => r === key)
 }
@@ -101,13 +139,33 @@ const onRuleTypeChange = () => {
   if (rt?.hasValue === false) currentRule.value.value = ''
 }
 
-const showAddDialog = () => { currentRule.value = { type: 'DOMAIN-SUFFIX', value: '', policy: 'DIRECT' }; dialogVisible.value = true }
+const showAddDialog = () => {
+  isEdit.value = false; editIdx.value = -1
+  currentRule.value = { type: 'DOMAIN-SUFFIX', value: '', policy: 'DIRECT' }
+  dialogVisible.value = true
+}
+
+const editRule = (row) => {
+  const idx = findRealIndex(row)
+  if (idx < 0) { ElMessage.error('未找到该规则'); return }
+  isEdit.value = true; editIdx.value = idx
+  currentRule.value = { ...row }
+  dialogVisible.value = true
+}
 
 const saveRule = () => {
   if (needsValue.value && !currentRule.value.value) { ElMessage.error('请输入匹配值'); return }
   if (!currentRule.value.policy) { ElMessage.error('请选择策略'); return }
-  emit('update', 'rules', [...allRules.value, formatRule(currentRule.value)])
-  dialogVisible.value = false; ElMessage.success('添加成功')
+  const newRules = [...allRules.value]
+  const ruleStr = formatRule(currentRule.value)
+  if (isEdit.value && editIdx.value >= 0) {
+    newRules[editIdx.value] = ruleStr
+  } else {
+    newRules.push(ruleStr)
+  }
+  emit('update', 'rules', newRules)
+  dialogVisible.value = false
+  ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
 }
 
 const deleteRule = async (row) => {
@@ -136,10 +194,7 @@ const moveDown = (row) => {
 
 const findDuplicates = () => {
   const seen = {}; const groups = []
-  allRules.value.forEach((ruleStr, idx) => {
-    if (!seen[ruleStr]) seen[ruleStr] = []
-    seen[ruleStr].push(idx)
-  })
+  allRules.value.forEach((rs, i) => { if (!seen[rs]) seen[rs] = []; seen[rs].push(i) })
   for (const [key, indices] of Object.entries(seen)) {
     if (indices.length > 1) groups.push({ ...parseRule(key), count: indices.length, indices })
   }
@@ -167,7 +222,7 @@ const removeAllDups = async () => {
 
 <style scoped>
 .rule-table { width: 100%; }
-.table-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; flex-wrap: wrap; gap: 8px; }
+.table-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; gap:8px; flex-wrap:wrap; }
 .dup-group { border:1px solid #e4e7ed; border-radius:6px; padding:12px; margin-bottom:12px; }
 .dup-header { margin-bottom:8px; }
 .dup-indices { display:flex; flex-wrap:wrap; }
