@@ -61,6 +61,9 @@
           </div>
         </el-tab-pane>
 
+        <el-tab-pane label="路由器同步" name="router">
+          <RouterSync />
+        </el-tab-pane>
         <el-tab-pane label="上传文件" name="upload">
           <div class="upload-section">
             <el-upload
