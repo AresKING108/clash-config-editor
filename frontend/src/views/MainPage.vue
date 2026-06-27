@@ -282,7 +282,7 @@ const saveAsTemplate = async () => {
       const fn = "openclash_" + ocActiveConfig.value + ".yaml";
       const resp = await fetch("/api/config/save-as-template", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({filename:fn,templateName:value})});
       const res = await resp.json();
-      if (res.success) { ElMessage.success("已保存为: " + (res.template || value)); templateList.push(value + ".txt"); }
+      if (res.success) { ElMessage.success("已保存为: " + (res.template || value)); templateList.value.push(value); }
       else ElMessage.error(res.error);
     }
   } catch(e) { ElMessage.error("保存失败: " + (e.message || e)); }
