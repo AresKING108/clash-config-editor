@@ -169,7 +169,12 @@ const applyOpenClash = async () => {
   applyOCLoading.value = true
   try {
     const fn = `openclash_${ocActiveConfig.value}.yaml`
-    await fileAPI.save(fn, configStore.config)
+    // 去掉编辑器特有字段，Clash 不认
+    const cleanConfig = JSON.parse(JSON.stringify(configStore.config))
+    if (cleanConfig["proxy-groups"]) {
+      cleanConfig["proxy-groups"] = cleanConfig["proxy-groups"].map(g => { const {exclude, ...rest} = g; return rest })
+    }
+    await fileAPI.save(fn, cleanConfig)
     const pushRes = await routerAPI.push([
       { local: fn, remote: `/etc/openclash/config/${ocActiveConfig.value}.yaml` }
     ], true)
