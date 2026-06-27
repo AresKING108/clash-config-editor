@@ -568,6 +568,23 @@ app.post('/api/files/save', authMiddleware, async (req, res) => {
 
     
 
+        // 清理孤儿规则引用
+    if (config.rules && config["proxy-groups"]) {
+      const validPolicies = new Set([...config["proxy-groups"].map(g => g.name), "DIRECT", "REJECT", "PASS"]);
+      config.rules = config.rules.filter(r => {
+        const parts = r.split(",");
+        const policy = parts.length >= 3 ? parts[2].trim() : (parts.length >= 2 ? parts[1].trim() : "");
+        return validPolicies.has(policy);
+      });
+    }
+    // 清理自引用
+    if (config["proxy-groups"]) {
+      const allNames = new Set(config["proxy-groups"].map(g => g.name));
+      for (const g of config["proxy-groups"]) {
+        if (g.proxies) g.proxies = g.proxies.filter(p => p !== g.name && (allNames.has(p) || ["DIRECT","REJECT","PASS"].includes(p)));
+      }
+    }
+
     const yamlContent = yaml.dump(config, {
 
       indent: 2,
@@ -1051,7 +1068,7 @@ app.post('/api/router/push', async (req, res) => {
           }, (rp) => { let b=''; rp.on('data',c=>b+=c); rp.on('end',() => rp.statusCode===204?resv():rej(new Error(b))); });
           r.on('error', rej); r.write(pl); r.end();
         });
-      } catch(e) { console.error('hot-reload API:', e.message); }
+      } catch(e) { res.json({ success: true, pushed: n, reloaded: false, reloadError: e.message }); return; }
     }
 
     res.json({ success: true, pushed: n, reloaded: !!triggerReload });
