@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
-import FileSelector from '../views/FileSelector.vue'
+import MainPage from '../views/MainPage.vue'
 import ConfigEditor from '../views/ConfigEditor.vue'
 import Login from '../views/Login.vue'
 import axios from 'axios'
@@ -13,8 +13,8 @@ const routes = [
   },
   {
     path: '/',
-    name: 'FileSelector',
-    component: FileSelector,
+    name: "MainPage",
+    component: MainPage,
     meta: { requiresAuth: true }
   },
   {
