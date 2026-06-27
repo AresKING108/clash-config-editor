@@ -1162,6 +1162,47 @@ const CLASH_API = process.env.ROUTER_HOST || '192.168.32.1';
 const CLASH_API_PORT = 9090;
 const CLASH_SECRET = 'MwFBUWod';
 
+
+// ==================== 从当前配置生成 Subconverter 模板 ====================
+
+app.post('/api/config/generate-template', async (req, res) => {
+  const { filename, templateName } = req.body || {};
+  const srcFile = filename ? path.join(configDir, filename) : null;
+  if (!srcFile) return res.status(400).json({ success: false, error: 'Missing filename' });
+  try {
+    const yc = await fs.readFile(srcFile, 'utf-8');
+    const cfg = yaml.load(yc);
+    const groups = cfg['proxy-groups'] || [];
+    const regionPatterns = {"\u9999\u6e2f":"(\u6e2f|hk|HK|Hong Kong)","\u53f0\u6e7e":"(\u53f0|tw|TW|Taiwan)","\u65e5\u672c":"(\u65e5|jp|JP|Japan)","\u65b0\u52a0\u5761":"(\u65b0|\u5761|\u72ee|sg|SG|Singapore)","\u7f8e\u56fd":"(\u7f8e|us|US|United States)","\u97e9\u56fd":"(\u97e9|kr|KR|Korea)","\u82f1\u56fd":"(\u82f1|uk|UK|England)","\u5fb7\u56fd":"(\u5fb7|de|DE|Germany)","\u6cd5\u56fd":"(\u6cd5|fr|FR|France)","\u4fc4\u7f57\u65af":"(\u4fc4|ru|RU|Russia)","\u6cf0\u56fd":"(\u6cf0|th|TH|Thailand)","\u6fb3\u5927\u5229\u4e9a":"(\u6fb3|au|AU|Australia)","\u52a0\u62ff\u5927":"(\u52a0|ca|CA|Canada)","\u5df4\u897f":"(\u5df4|br|BR|Brazil)","\u5357\u975e":"(\u5357|za|ZA|South Africa)"};
+function findRegion(n){for(const[r,p]of Object.entries(regionPatterns))if(n.includes(r))return p;return null}
+function isCountry(n){return!!findRegion(n)}
+    const lines = [];
+    for (const g of groups) {
+      const nm = g.name, ty = g.type || 'select', px = g.proxies || [];
+      const rp = findRegion(nm);
+      if (rp && (ty === 'select' || ty === 'url-test')) {
+        lines.push(nm + '`select`' + rp + '`.*');
+      } else if (ty === 'select') {
+        const its = px.filter(p => p !== nm);
+        const s = [];
+        for (const p of its) if (isCountry(p)) s.push('[]' + p);
+        for (const p of its) if (!isCountry(p) && !['DIRECT','REJECT'].includes(p)) s.push('[]' + p);
+        if (its.includes('DIRECT')) s.push('[]DIRECT');
+        if (its.includes('REJECT')) s.push('[]REJECT');
+        lines.push(nm + '`select`' + s.join('`') + '`.*');
+      } else if (['url-test','fallback','load-balance'].includes(ty)) {
+        const u = g.url || 'http://www.gstatic.com/generate_204';
+        const iv = g.interval || 300;
+        if (ty === 'url-test') lines.push(nm + '`url-test`.*`' + u + '`' + iv + '`' + (g.tolerance || 50));
+        else lines.push(nm + '`' + ty + '`.*`' + u + '`' + iv);
+      }
+    }
+    const tplName = templateName || 'generated_groups.txt';
+    const out = lines.join('\n') + '\n';
+    await fs.writeFile(path.join(configDir, tplName), out, 'utf-8');
+    res.json({ success: true, template: tplName, groups: groups.length, content: out });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
 app.post('/api/router/hot-reload', async (req, res) => {
   const { filename } = req.body || {};
   if (!filename) return res.status(400).json({ success: false, error: 'Missing filename' });
