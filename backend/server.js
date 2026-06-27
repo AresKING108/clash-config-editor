@@ -999,11 +999,11 @@ app.post('/api/router/pull', async (req, res) => {
     const r = [];
     if (type === 'subconverter' || type === 'all') {
       await execAsync('mkdir -p ' + configDir + '/subconverter_rules', { timeout: 5000 });
-      await runSSH('tar czf /tmp/sub_rules.tgz -C /etc/subconverter rules/ groups.txt pref.ini emoji.txt', 30000);
+      await runSSH('tar czf /tmp/sub_rules.tgz -C /etc/subconverter rules/ groups.txt pref.ini emoji.txt 2>/dev/null || true', 30000);
       await scpFrom('/tmp/sub_rules.tgz', configDir + '/subconverter.tgz', 30000);
       await execAsync('tar xzf ' + configDir + '/subconverter.tgz -C ' + configDir + '/subconverter_rules && rm ' + configDir + '/subconverter.tgz', { timeout: 10000 });
       for (const sf of ['groups.txt', 'pref.ini', 'emoji.txt']) {
-        await scpFrom('/etc/subconverter/' + sf, configDir + '/subconverter_' + sf, 15000);
+        try{await scpFrom('/etc/subconverter/' + sf, configDir + '/subconverter_' + sf, 15000)}catch(e){console.error('scp skip:',e.message)}
       }
       r.push('subconverter');
     }
