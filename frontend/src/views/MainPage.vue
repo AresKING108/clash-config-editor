@@ -298,7 +298,15 @@ const saveAsTemplate = async () => {
       const fn = "openclash_" + ocActiveConfig.value + ".yaml";
       const resp = await fetch("/api/config/save-as-template", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({filename:fn,templateName:value})});
       const res = await resp.json();
-      if (res.success) { ElMessage.success("已保存为: " + (res.template || value)); templateList.value.push(value); }
+      if (res.success) {
+      ElMessage.success("已保存为: " + (res.template || value))
+      templateList.value.push(value)
+      // push to router
+      const pushRes = await fetch("/api/router/push", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:[{local:res.template,remote:"/etc/subconverter/" + res.template}],triggerReload:false})})
+      const pushData = await pushRes.json()
+      if (pushData.success) ElMessage.success("已推送到路由器")
+      else ElMessage.warning("保存成功但推送失败")
+    }
       else ElMessage.error(res.error);
     }
   } catch(e) { ElMessage.error("保存失败: " + (e.message || e)); }
