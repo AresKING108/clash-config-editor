@@ -6,7 +6,7 @@
     </div>
 
     <div class="drag-list">
-      <draggable v-model="localGroups" item-key="name" handle=".drag-handle" ghost-class="ghost" animation="200">
+      <draggable v-model="localGroups" item-key="name" handle=".drag-handle" ghost-class="ghost" animation="200" @change="onDrag">
         <template #item="{ element: row, index }">
           <div class="drag-row" :class="{ 'has-exclude': row.exclude && row.exclude.length }">
             <div class="drag-handle" title="拖拽排序">⠿</div>
@@ -96,14 +96,12 @@ const currentGroup = ref(defaultGroup())
 const localGroups = ref([])
 
 // Sync localGroups from config
+let _syncing=false
 watch(() => props.config['proxy-groups'], (val) => {
+  if(_syncing)return
   localGroups.value = val ? [...val] : []
 }, { immediate: true, deep: true })
 
-// When localGroups change (drag), emit update
-watch(localGroups, (val) => {
-  emit('update', 'proxy-groups', val)
-}, { deep: true })
 
 const proxyGroups = computed(() => props.config['proxy-groups'] || [])
 
@@ -156,7 +154,7 @@ const saveGroup = () => {
   const newGroups = [...localGroups.value]
   if (isEdit.value && editIndex.value >= 0) newGroups[editIndex.value] = data
   else newGroups.push(data)
-  localGroups.value = newGroups
+  localGroups.value = newGroups; _syncing=true; emit("update", "proxy-groups", newGroups); _syncing=false
   dialogVisible.value = false; ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
 }
 
@@ -168,10 +166,12 @@ const deleteGroup = async (index) => {
   if (rules.length) msg += `\\n\\n⚠️ ${rules.length} 条规则引用了此策略组，删除后这些规则会失效！`
   try {
     await ElMessageBox.confirm(msg, '确认删除', { confirmButtonText: '删除', type: rules.length ? 'warning' : 'info' })
-    localGroups.value = localGroups.value.filter((_, i) => i !== index)
+    _syncing=true; const filtered = localGroups.value.filter((_, i) => i !== index)
+    localGroups.value = filtered; emit("update", "proxy-groups", filtered); _syncing=false
     ElMessage.success('已删除' + (rules.length ? `，${rules.length} 条引用规则需手动处理` : ''))
   } catch {}
 }
+const onDrag = () => { _syncing=true; emit("update", "proxy-groups", [...localGroups.value]); _syncing=false }
 </script>
 
 <style scoped>
