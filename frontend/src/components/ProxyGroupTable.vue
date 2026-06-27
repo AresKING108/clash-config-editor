@@ -160,15 +160,22 @@ const saveGroup = () => {
 
 const deleteGroup = async (index) => {
   const name = localGroups.value[index].name
-  // 检查是否有规则引用此策略组
-  const rules = (props.config.rules || []).filter(r => r.endsWith(',' + name) || r === name)
+  const allRules = props.config.rules || []
+  const refRules = allRules.filter(r => r.endsWith(',' + name) || r === name)
   let msg = `确定删除策略组 "${name}"？`
-  if (rules.length) msg += `\\n\\n⚠️ ${rules.length} 条规则引用了此策略组，删除后这些规则会失效！`
+  if (refRules.length) msg += `\\n\\n将同时删除 ${refRules.length} 条引用此组的规则`
   try {
-    await ElMessageBox.confirm(msg, '确认删除', { confirmButtonText: '删除', type: rules.length ? 'warning' : 'info' })
-    _syncing=true; const filtered = localGroups.value.filter((_, i) => i !== index)
-    localGroups.value = filtered; emit("update", "proxy-groups", filtered); _syncing=false
-    ElMessage.success('已删除' + (rules.length ? `，${rules.length} 条引用规则需手动处理` : ''))
+    await ElMessageBox.confirm(msg, '确认删除', { confirmButtonText: '删除', type: refRules.length ? 'warning' : 'info' })
+    _syncing=true
+    const filtered = localGroups.value.filter((_, i) => i !== index)
+    localGroups.value = filtered
+    emit("update", "proxy-groups", filtered)
+    if (refRules.length) {
+      const remainingRules = allRules.filter(r => !r.endsWith(',' + name) && r !== name)
+      emit("update", "rules", remainingRules)
+    }
+    _syncing=false
+    ElMessage.success(refRules.length ? `已删除策略组及 ${refRules.length} 条引用规则` : '已删除')
   } catch {}
 }
 const onDrag = () => { _syncing=true; emit("update", "proxy-groups", [...localGroups.value]); _syncing=false }
