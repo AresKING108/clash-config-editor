@@ -1025,7 +1025,7 @@ app.post('/api/router/push', async (req, res) => {
 
     for (const f of files || []) {
 
-      await scpTo(path.join(configDir, f.local), f.remote.replace("/etc/openclash/", "/etc/openclash/config/"), 15000);
+      await scpTo(path.join(configDir, f.local), f.remote.indexOf("/config/") < 0 ? f.remote.replace("/etc/openclash/", "/etc/openclash/config/") : f.remote, 15000);
             n++;
 
     }
