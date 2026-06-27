@@ -1025,11 +1025,8 @@ app.post('/api/router/push', async (req, res) => {
 
     for (const f of files || []) {
 
-      await scpTo(path.join(configDir, f.local), f.remote, 15000);
-      // also write to config/
-      const cr = f.remote.replace("/etc/openclash/", "/etc/openclash/config/");
-      if (cr !== f.remote) await scpTo(path.join(configDir, f.local), cr, 15000);
-      n++;
+      await scpTo(path.join(configDir, f.local), f.remote.replace("/etc/openclash/", "/etc/openclash/config/"), 15000);
+            n++;
 
     }
 
@@ -1089,7 +1086,7 @@ app.post('/api/router/push', async (req, res) => {
         yc = yc.replace(/127\\\\.0\\\\.0\\\\.1(:\\\d+)/g, '0.0.0.0$1');
         const pl = JSON.stringify({ payload: yc });
         await new Promise((resv, rej) => {
-          const r = http.request({ hostname:CLASH_API_HOST,port:9090,path:'/configs?force=true',method:'PUT',
+          const r = http.request({ hostname:(process.env.ROUTER_HOST || "192.168.32.1"),port:9090,path:'/configs?force=true',method:'PUT',
             headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(pl),'Authorization':'Bearer '+CLASH_SECRET}
           }, (rp)=>{let b='';rp.on('data',c=>b+=c);rp.on('end',()=>rp.statusCode===204?resv():rej(new Error(b)))});
           r.on('error',rej); r.write(pl); r.end();
