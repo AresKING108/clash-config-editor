@@ -260,6 +260,12 @@ const deleteTemplate = async (tpl) => {
     await ElMessageBox.confirm(`确定删除 "${tpl}"？`)
     const map = { 'groups.txt':'subconverter_groups.txt', 'pref.ini':'subconverter_pref.ini', 'emoji.txt':'subconverter_emoji.txt', 'all_base.tpl':'subconverter_rules/rules/all_base.tpl' }
     await fetch(`/api/files/${map[tpl]||tpl}`, { method:'DELETE' })
+    // also delete from router
+    const rMap = { 'subconverter_groups.txt':'/etc/subconverter/groups.txt', 'subconverter_pref.ini':'/etc/subconverter/pref.ini', 'subconverter_emoji.txt':'/etc/subconverter/emoji.txt' }
+    const rPath = rMap[map[tpl]||tpl];
+    if (rPath) {
+      await fetch('/api/router/delete-file', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({path:rPath}) })
+    }
     templateList.value = templateList.value.filter(t => t !== tpl)
     if (selectedTemplate.value === tpl) { selectedTemplate.value = ''; tplContent.value = '' }
     ElMessage.success('已删除')

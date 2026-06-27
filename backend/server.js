@@ -1169,6 +1169,18 @@ app.post('/api/config/save-as-template', async (req, res) => {
   } catch(e){res.json({success:false,error:e.message})}
 });
 
+
+// ==================== 删除路由器文件 ====================
+app.post('/api/router/delete-file', async (req, res) => {
+  const { path } = req.body || {};
+  if (!path) return res.status(400).json({ success: false, error: 'Missing path' });
+  try {
+    const { execSync } = require('child_process');
+    execSync(`ssh -o StrictHostKeyChecking=no -p ${ROUTER_PORT} ${ROUTER_USER}@${ROUTER_HOST} 'rm -f ${path}'`, { timeout: 10000 });
+    res.json({ success: true });
+  } catch (e) { res.json({ success: false, error: e.message }); }
+});
+
 app.listen(PORT, () => {
 
   console.log(`Clash Config Editor running on http://localhost:${PORT}`);
