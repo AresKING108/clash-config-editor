@@ -1034,6 +1034,26 @@ app.post('/api/router/push', async (req, res) => {
 
     }
 
+    // 通过 Clash API 热重载（不重启进程）
+    if (triggerReload && n > 0 && files && files[0]) {
+      try {
+        const lf = files[0].local;
+        const fullPath = path.join(configDir, lf);
+        let yc = await fs.readFile(fullPath, 'utf-8');
+        yc = yc.replace(/external-ui:.*/g, 'external-ui: /etc/openclash/ui');
+        const { default: http } = await import('http');
+        const pl = JSON.stringify({ payload: yc });
+        await new Promise((resv, rej) => {
+          const r = http.request({
+            hostname: '192.168.32.1', port: 9090,
+            path: '/configs?force=true', method: 'PUT',
+            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(pl), 'Authorization': 'Bearer MwFBUWod' }
+          }, (rp) => { let b=''; rp.on('data',c=>b+=c); rp.on('end',() => rp.statusCode===204?resv():rej(new Error(b))); });
+          r.on('error', rej); r.write(pl); r.end();
+        });
+      } catch(e) { console.error('hot-reload API:', e.message); }
+    }
+
     res.json({ success: true, pushed: n, reloaded: !!triggerReload });
 
   } catch (e) {
