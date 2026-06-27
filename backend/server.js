@@ -672,7 +672,7 @@ app.post('/api/config/validate', authMiddleware, async (req, res) => {
 
       warnings.push('运行模式 (mode) 未指定，将使用默认值');
 
-    } else if (!['rule', 'global', 'direct'].includes(config.mode)) {
+    } else if (!["rule", "global", "direct"].includes(config.mode.toLowerCase())) {
 
       errors.push('运行模式 (mode) 必须是 rule、global 或 direct 之一');
 
