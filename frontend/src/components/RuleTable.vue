@@ -43,7 +43,7 @@
           <el-input v-model="currentRule.value" placeholder="域名/IP/关键词" />
         </el-form-item>
         <el-form-item label="策略">
-          <el-select v-model="currentRule.policy" placeholder="选择策略" style="width:100%" filterable>
+          <el-select v-model="currentRule.policy" placeholder="输入或选择策略" style="width:100%" filterable allow-create default-first-option>
             <el-option label="DIRECT" value="DIRECT" />
             <el-option label="REJECT" value="REJECT" />
             <el-option v-for="g in proxyGroups" :key="g.name" :label="g.name" :value="g.name" />

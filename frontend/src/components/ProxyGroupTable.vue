@@ -204,6 +204,12 @@ const deleteGroup = async (index) => {
       const remainingRules = allRules.filter(r => !r.endsWith(',' + name) && r !== name)
       emit("update", "rules", remainingRules)
     }
+    // 从其他策略组的 proxies 里移除对本组的引用
+    for (const g of filtered) {
+      if (g.proxies) {
+        g.proxies = g.proxies.filter(p => p !== name)
+      }
+    }
     _syncing=false
     ElMessage.success(refRules.length ? `已删除策略组及 ${refRules.length} 条引用规则` : '已删除')
   } catch {}
