@@ -82,7 +82,7 @@ const isValidFilename = (filename) => {
 
   
 
-  if (!/^[a-zA-Z0-9_\-\.]+$/.test(filename)) {
+  if (!/^[\w\-.\p{L}]+$/u.test(filename)) {
 
     return false;
 
