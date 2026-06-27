@@ -569,6 +569,7 @@ app.post('/api/files/save', authMiddleware, async (req, res) => {
 
     
 
+    console.error("WARN_Save: rules=" + (config.rules ? config.rules.length : 0) + " groups=" + (config["proxy-groups"] ? config["proxy-groups"].length : 0) + " mode=" + (config.mode || "?"));
     const yamlContent = yaml.dump(config, {
 
       indent: 2,
@@ -1025,7 +1026,9 @@ app.post('/api/router/push', async (req, res) => {
     for (const f of files || []) {
 
       await scpTo(path.join(configDir, f.local), f.remote, 15000);
-
+      // also write to config/
+      const cr = f.remote.replace("/etc/openclash/", "/etc/openclash/config/");
+      if (cr !== f.remote) await scpTo(path.join(configDir, f.local), cr, 15000);
       n++;
 
     }
