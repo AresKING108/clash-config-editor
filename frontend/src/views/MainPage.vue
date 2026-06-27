@@ -41,6 +41,7 @@
           <div class="sc-header">
             <el-space>
               <el-button type="primary" @click="pullTemplates" :loading="tplLoading">拉取模板</el-button>
+          <el-button @click="refreshTemplateList">刷新列表</el-button>
               <el-select v-model="selectedTemplate" placeholder="选择模板" style="width: 240px" @change="loadTemplateFile">
                 <el-option v-for="tpl in templateList" :key="tpl" :label="tpl" :value="tpl">
                   <span>{{ tpl }}</span>
