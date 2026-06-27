@@ -1175,8 +1175,7 @@ app.post('/api/router/delete-file', async (req, res) => {
   const { path } = req.body || {};
   if (!path) return res.status(400).json({ success: false, error: 'Missing path' });
   try {
-    const { execSync } = require('child_process');
-    execSync(`ssh -o StrictHostKeyChecking=no -p ${ROUTER_PORT} ${ROUTER_USER}@${ROUTER_HOST} 'rm -f ${path}'`, { timeout: 10000 });
+    await execAsync('ssh -o StrictHostKeyChecking=no -p ' + ROUTER_PORT + ' ' + ROUTER_USER + '@' + ROUTER_HOST + ' rm -f ' + path, { timeout: 10000 });
     res.json({ success: true });
   } catch (e) { res.json({ success: false, error: e.message }); }
 });
