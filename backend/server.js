@@ -1132,6 +1132,43 @@ app.get('*', (req, res) => {
 
 });
 
+
+app.post('/api/config/save-as-template', async (req, res) => {
+  const { filename, templateName } = req.body || {};
+  const srcFile = filename ? path.join(configDir, filename) : null;
+  if (!srcFile) return res.status(400).json({ success: false, error: 'Missing filename' });
+  try {
+    const yc = await fs.readFile(srcFile, 'utf-8');
+    const cfg = yaml.load(yc);
+    const groups = cfg['proxy-groups'] || [];
+    const R = {"\u9999\u6e2f":"(\u6e2f|hk|HK|Hong Kong)","\u65e5\u672c":"(\u65e5|jp|JP|Japan)","\u7f8e\u56fd":"(\u7f8e|us|US|United States)","\u65b0\u52a0\u5761":"(\u65b0|\u5761|\u72ee|sg|SG|Singapore)","\u97e9\u56fd":"(\u97e9|kr|KR|Korea)","\u53f0\u6e7e":"(\u53f0|tw|TW|Taiwan)"};
+    const fR=n=>{for(const[r,p]of Object.entries(R))if(n.includes(r))return p;return null};
+    const iC=n=>!!fR(n);
+    const lines=[];
+    for(const g of groups){
+      const nm=g.name,ty=g.type||'select',px=g.proxies||[];
+      const rp=fR(nm);
+      if(rp&&(ty==='select'||ty==='url-test')){lines.push(nm+'`select`'+rp+'`.*');continue}
+      if(ty==='select'){
+        const it=px.filter(p=>p!==nm);const s=[];
+        for(const p of it)if(iC(p))s.push('[]'+p);
+        for(const p of it)if(!iC(p)&&!['DIRECT','REJECT'].includes(p))s.push('[]'+p);
+        if(it.includes('DIRECT'))s.push('[]DIRECT');
+        if(it.includes('REJECT'))s.push('[]REJECT');
+        lines.push(nm+'`select`'+s.join('`')+'`.*');
+      }else if(['url-test','fallback','load-balance'].includes(ty)){
+        const u=g.url||'http://www.gstatic.com/generate_204',iv=g.interval||300;
+        if(ty==='url-test')lines.push(nm+'`url-test`.*`'+u+'`'+iv+'`'+(g.tolerance||50));
+        else lines.push(nm+'`'+ty+'`.*`'+u+'`'+iv);
+      }
+    }
+    const tn = (templateName||'template')+'.txt';
+    const out = lines.join('\n')+'\n';
+    await fs.writeFile(path.join(configDir, tn), out, 'utf-8');
+    res.json({ success: true, template: tn, groups: groups.length, content: out });
+  } catch(e){res.json({success:false,error:e.message})}
+});
+
 app.listen(PORT, () => {
 
   console.log(`Clash Config Editor running on http://localhost:${PORT}`);
