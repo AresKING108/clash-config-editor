@@ -1031,7 +1031,7 @@ app.post('/api/router/push', async (req, res) => {
 
     if (triggerReload) {
 
-      await runSSH('/etc/init.d/subconverter restart 2>/dev/null; /etc/init.d/openclash reload 2>/dev/null; echo ok', 30000);
+      await runSSH('/etc/init.d/subconverter restart 2>/dev/null; /etc/init.d/openclash restart 2>/dev/null; echo ok', 30000);
 
     }
 
