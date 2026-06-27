@@ -20,6 +20,7 @@
             <el-button type="primary" @click="pullOpenClash" :loading="ocLoading">拉取文件</el-button>
             <el-button type="success" @click="applyOpenClash" :loading="applyOCLoading">应用修改</el-button>
           <el-button @click="validateConfig" :loading="validating">校验</el-button>
+          <el-button @click="saveAsTemplate">另存为模板</el-button>
           </div>
           <el-tag v-if="ocActiveConfig" type="info" effect="plain">
             当前: {{ ocActiveConfig }}
@@ -241,7 +242,7 @@ const showSaveAsDialog = async () => {
       templateList.value.push(value)
       selectedTemplate.value = value
     }
-  } catch {}
+  } catch(e) { ElMessage.error("保存失败: " + (e.message || e)); }
 }
 
 const deleteTemplate = async (tpl) => {
@@ -252,7 +253,7 @@ const deleteTemplate = async (tpl) => {
     templateList.value = templateList.value.filter(t => t !== tpl)
     if (selectedTemplate.value === tpl) { selectedTemplate.value = ''; tplContent.value = '' }
     ElMessage.success('已删除')
-  } catch {}
+  } catch(e) { ElMessage.error("保存失败: " + (e.message || e)); }
 }
 
 // ===== 上传文件 =====
@@ -272,6 +273,19 @@ const validateConfig = async () => {
     } else ElMessage.error('校验失败')
   } catch (e) { ElMessage.error('校验出错: ' + e.message) }
   finally { validating.value = false }
+}
+
+const saveAsTemplate = async () => {
+  try {
+    const { value } = await ElMessageBox.prompt("输入模板名称", "另存为模板", {inputPlaceholder:"例如: 我的模板",inputValue:"template_"+ocActiveConfig.value});
+    if (value) {
+      const fn = "openclash_" + ocActiveConfig.value + ".yaml";
+      const resp = await fetch("/api/config/save-as-template", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({filename:fn,templateName:value})});
+      const res = await resp.json();
+      if (res.success) { ElMessage.success("已保存为: " + (res.template || value)); templateList.push(value + ".txt"); }
+      else ElMessage.error(res.error);
+    }
+  } catch(e) { ElMessage.error("保存失败: " + (e.message || e)); }
 }
 
 const importFromUrl = async () => {
