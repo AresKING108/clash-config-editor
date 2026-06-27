@@ -8,7 +8,7 @@
       </span>
       <div class="actions">
         <el-button :icon="View" @click="previewYAML">预览YAML</el-button>
-        <el-button type="primary" :icon="Check" @click="saveConfig" :loading="saving">
+        <el-button v-if="!embedded" type="primary" :icon="Check" @click="saveConfig" :loading="saving">
           保存配置
         </el-button>
       </div>
