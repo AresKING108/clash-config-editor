@@ -370,7 +370,7 @@ app.get('/api/files/list', authMiddleware, async (req, res) => {
 
     const yamlFiles = files.filter(f => {
 
-      const validExt = f.endsWith('.yaml') || f.endsWith('.yml');
+      const validExt = f.endsWith('.yaml') || f.endsWith('.yml') || f.endsWith('.txt') || f.endsWith('.tpl') || f.endsWith('.ini');
 
       return validExt && isValidFilename(f);
 
