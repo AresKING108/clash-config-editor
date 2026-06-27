@@ -15,7 +15,6 @@ import multer from 'multer';
 import crypto from 'crypto';
 
 import { exec } from 'child_process';
-import http from 'http';
 
 import { promisify } from 'util';
 
@@ -383,7 +382,7 @@ app.get('/api/files/list', authMiddleware, async (req, res) => {
 
       yamlFiles.map(async (filename) => {
 
-        const filePath = path.join(configDir, decodedName);
+        const filePath = path.join(configDir, filename);
 
         const stats = await fs.stat(filePath);
 
@@ -569,7 +568,6 @@ app.post('/api/files/save', authMiddleware, async (req, res) => {
 
     
 
-    console.error("WARN_Save: rules=" + (config.rules ? config.rules.length : 0) + " groups=" + (config["proxy-groups"] ? config["proxy-groups"].length : 0) + " mode=" + (config.mode || "?"));
     const yamlContent = yaml.dump(config, {
 
       indent: 2,
@@ -1025,76 +1023,18 @@ app.post('/api/router/push', async (req, res) => {
 
     for (const f of files || []) {
 
-      await scpTo(path.join(configDir, f.local), f.remote.indexOf("/config/") < 0 ? f.remote.replace("/etc/openclash/", "/etc/openclash/config/") : f.remote, 15000);
-            n++;
+      await scpTo(path.join(configDir, f.local), f.remote, 15000);
+
+      n++;
 
     }
 
     if (triggerReload) {
 
-      await runSSH('/etc/init.d/subconverter restart 2>/dev/null; /etc/init.d/openclash restart 2>/dev/null; echo ok', 30000);
 
     }
 
-
-    // 推送成功后，通过 Clash API 热重载（不重启进程）
-    if (triggerReload && n > 0 && files && files[0]) {
-      try {
-        const remoteFile = files[0].remote;
-        const configName = remoteFile.split('/').pop().replace('.yaml', '');
-        const localFile = files[0].local;
-        
-        // 通过 hot-reload API 热重载
-        const httpMod = await import('http');
-        const http = httpMod.default || httpMod;
-        
-        let yamlContent = await fs.readFile(path.join(configDir, localFile), 'utf-8');
-        yamlContent = yamlContent.replace(/^(\s*)external-ui:.*$/gm, '$1external-ui: /etc/openclash/ui');
-        yamlContent = yamlContent.replace(/127\.0\.0\.1(:\d+)/g, '0.0.0.0$1');
-        
-        const payload = JSON.stringify({ payload: yamlContent });
-        await new Promise((resolve, reject) => {
-          const req = http.request({
-            hostname: ROUTER_HOST, port: 9090,
-            path: '/configs?force=true', method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              'Content-Length': Buffer.byteLength(payload),
-              'Authorization': 'Bearer ' + process.env.CLASH_SECRET || 'MwFBUWod'
-            }
-          }, (resp) => {
-            let b = ''; resp.on('data', c => b += c);
-            resp.on('end', () => {
-              if (resp.statusCode === 204) resolve();
-              else reject(new Error(b || resp.statusCode));
-            });
-          });
-          req.on('error', reject);
-          req.write(payload);
-          req.end();
-        });
-      } catch (e) {
-        console.error('Hot reload failed (non-fatal):', e.message);
-      }
-    }
-        // Clash API hot-reload after push
-    if (triggerReload && n > 0 && files[0]) {
-      try {
-        const lf = files[0].local;
-        let yc = await fs.readFile(path.join(configDir, lf), 'utf-8');
-        yc = yc.replace(/^(\\s*)external-ui:.*$/gm, '$1external-ui: /etc/openclash/ui');
-        yc = yc.replace(/127\\\\.0\\\\.0\\\\.1(:\\\d+)/g, '0.0.0.0$1');
-        const pl = JSON.stringify({ payload: yc });
-        await new Promise((resv, rej) => {
-          const r = http.request({ hostname:(process.env.ROUTER_HOST || "192.168.32.1"),port:9090,path:'/configs?force=true',method:'PUT',
-            headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(pl),'Authorization':'Bearer '+CLASH_SECRET}
-          }, (rp)=>{let b='';rp.on('data',c=>b+=c);rp.on('end',()=>rp.statusCode===204?resv():rej(new Error(b)))});
-          r.on('error',rej); r.write(pl); r.end();
-        });
-      } catch(e) { console.error('hot-reload:', e.message); }
-    }
     res.json({ success: true, pushed: n, reloaded: !!triggerReload });
-
 
   } catch (e) {
 
@@ -1114,7 +1054,6 @@ app.post('/api/router/reload', async (req, res) => {
 
     if (srv === 'subconverter' || srv === 'all') cmds.push('/etc/init.d/subconverter restart');
 
-    if (srv === 'openclash' || srv === 'all') cmds.push('/etc/init.d/openclash restart');
 
     const { stdout } = await runSSH(cmds.join(' && '), 30000);
 
@@ -1154,103 +1093,6 @@ app.get('*', (req, res) => {
 
   res.sendFile(path.join(publicDir, 'index.html'));
 
-});
-
-
-// ==================== Clash API 热重载 ====================
-const CLASH_API = process.env.ROUTER_HOST || '192.168.32.1';
-const CLASH_API_PORT = 9090;
-const CLASH_SECRET = 'MwFBUWod';
-
-
-// ==================== 从当前配置生成 Subconverter 模板 ====================
-
-app.post('/api/config/generate-template', async (req, res) => {
-  const { filename, templateName } = req.body || {};
-  const srcFile = filename ? path.join(configDir, filename) : null;
-  if (!srcFile) return res.status(400).json({ success: false, error: 'Missing filename' });
-  try {
-    const yc = await fs.readFile(srcFile, 'utf-8');
-    const cfg = yaml.load(yc);
-    const groups = cfg['proxy-groups'] || [];
-    const regionPatterns = {"\u9999\u6e2f":"(\u6e2f|hk|HK|Hong Kong)","\u53f0\u6e7e":"(\u53f0|tw|TW|Taiwan)","\u65e5\u672c":"(\u65e5|jp|JP|Japan)","\u65b0\u52a0\u5761":"(\u65b0|\u5761|\u72ee|sg|SG|Singapore)","\u7f8e\u56fd":"(\u7f8e|us|US|United States)","\u97e9\u56fd":"(\u97e9|kr|KR|Korea)","\u82f1\u56fd":"(\u82f1|uk|UK|England)","\u5fb7\u56fd":"(\u5fb7|de|DE|Germany)","\u6cd5\u56fd":"(\u6cd5|fr|FR|France)","\u4fc4\u7f57\u65af":"(\u4fc4|ru|RU|Russia)","\u6cf0\u56fd":"(\u6cf0|th|TH|Thailand)","\u6fb3\u5927\u5229\u4e9a":"(\u6fb3|au|AU|Australia)","\u52a0\u62ff\u5927":"(\u52a0|ca|CA|Canada)","\u5df4\u897f":"(\u5df4|br|BR|Brazil)","\u5357\u975e":"(\u5357|za|ZA|South Africa)"};
-function findRegion(n){for(const[r,p]of Object.entries(regionPatterns))if(n.includes(r))return p;return null}
-function isCountry(n){return!!findRegion(n)}
-    const lines = [];
-    for (const g of groups) {
-      const nm = g.name, ty = g.type || 'select', px = g.proxies || [];
-      const rp = findRegion(nm);
-      if (rp && (ty === 'select' || ty === 'url-test')) {
-        lines.push(nm + '`select`' + rp + '`.*');
-      } else if (ty === 'select') {
-        const its = px.filter(p => p !== nm);
-        const s = [];
-        for (const p of its) if (isCountry(p)) s.push('[]' + p);
-        for (const p of its) if (!isCountry(p) && !['DIRECT','REJECT'].includes(p)) s.push('[]' + p);
-        if (its.includes('DIRECT')) s.push('[]DIRECT');
-        if (its.includes('REJECT')) s.push('[]REJECT');
-        lines.push(nm + '`select`' + s.join('`') + '`.*');
-      } else if (['url-test','fallback','load-balance'].includes(ty)) {
-        const u = g.url || 'http://www.gstatic.com/generate_204';
-        const iv = g.interval || 300;
-        if (ty === 'url-test') lines.push(nm + '`url-test`.*`' + u + '`' + iv + '`' + (g.tolerance || 50));
-        else lines.push(nm + '`' + ty + '`.*`' + u + '`' + iv);
-      }
-    }
-    const tplName = templateName || 'generated_groups.txt';
-    const out = lines.join('\n') + '\n';
-    await fs.writeFile(path.join(configDir, tplName), out, 'utf-8');
-    res.json({ success: true, template: tplName, groups: groups.length, content: out });
-  } catch (e) { res.json({ success: false, error: e.message }); }
-});
-app.post('/api/router/hot-reload', async (req, res) => {
-  const { filename } = req.body || {};
-  if (!filename) return res.status(400).json({ success: false, error: 'Missing filename' });
-  const decodedName = decodeURIComponent(filename);
-
-  const filePath = path.join(configDir, filename);
-  try {
-    let yamlContent = await fs.readFile(filePath, 'utf-8');
-
-    // 清理外部 UI 路径（避免 Clash 安全策略拒绝）
-    yamlContent = yamlContent.replace(/^(\s*)external-ui:.*$/gm, '$1external-ui: /etc/openclash/ui');
-    yamlContent = yamlContent.replace(/^\s*external-ui-name:.*$/gm, '');
-    yamlContent = yamlContent.replace(/^\s*external-ui-url:.*$/gm, '');
-
-    // 确保 external-controller 对外可见
-    yamlContent = yamlContent.replace(/127\.0\.0\.1(:\d+)/g, '0.0.0.0$1');
-
-    // 通过 HTTP POST 发送到 Clash API
-    // http is imported at top level
-    const payload = JSON.stringify({ payload: yamlContent });
-    
-    const result = await new Promise((resolve, reject) => {
-      const req = http.request({
-        hostname: CLASH_API, port: CLASH_API_PORT,
-        path: '/configs?force=true', method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Content-Length': Buffer.byteLength(payload),
-          'Authorization': 'Bearer ' + CLASH_SECRET
-        }
-      }, (resp) => {
-        let body = '';
-        resp.on('data', c => body += c);
-        resp.on('end', () => resolve({ status: resp.statusCode, body }));
-      });
-      req.on('error', reject);
-      req.write(payload);
-      req.end();
-    });
-
-    if (result.status === 204 || result.status === 200) {
-      res.json({ success: true, message: 'Config reloaded via Clash API', status: result.status });
-    } else {
-      res.json({ success: false, error: 'Clash API rejected: ' + (result.body || result.status), status: result.status });
-    }
-  } catch (e) {
-    res.json({ success: false, error: e.message });
-  }
 });
 
 app.listen(PORT, () => {
