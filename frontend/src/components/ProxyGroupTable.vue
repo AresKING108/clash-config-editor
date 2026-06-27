@@ -2,38 +2,34 @@
   <div class="proxy-group-table">
     <div class="table-header">
       <el-button type="primary" :icon="Plus" @click="showAddDialog">添加代理组</el-button>
-      <el-tag type="info">拖拽左侧手柄可排序</el-tag>
+      <el-tag type="info">拖拽 ⠿ 可排序</el-tag>
     </div>
 
-    <el-table :data="proxyGroups" style="width: 100%" row-key="name">
-      <el-table-column label="#" width="50">
-        <template #default="{ $index }">
-          <span class="drag-handle" title="拖拽排序">⠿</span>
-          <span style="margin-left: 4px">{{ $index + 1 }}</span>
+    <div class="drag-list">
+      <draggable v-model="localGroups" item-key="name" handle=".drag-handle" ghost-class="ghost" animation="200">
+        <template #item="{ element: row, index }">
+          <div class="drag-row" :class="{ 'has-exclude': row.exclude && row.exclude.length }">
+            <div class="drag-handle" title="拖拽排序">⠿</div>
+            <div class="drag-col name-col">{{ row.name }}</div>
+            <div class="drag-col type-col">
+              <el-tag :type="typeTag(row.type)" size="small">{{ row.type }}</el-tag>
+            </div>
+            <div class="drag-col proxies-col">
+              <el-tag v-for="p in (row.proxies||[])" :key="p" size="small"
+                :type="p === 'DIRECT' ? 'success' : p === 'REJECT' ? 'danger' : ''"
+                style="margin:1px 2px">{{ p }}</el-tag>
+            </div>
+            <div class="drag-col exclude-col" v-if="hasExcludes">
+              <el-tag v-for="e in (row.exclude||[])" :key="e" size="small" type="danger" style="margin:1px 2px">{{ e }}</el-tag>
+            </div>
+            <div class="drag-col actions-col">
+              <el-button size="small" @click="editGroup(row, index)">编辑</el-button>
+              <el-button size="small" type="danger" @click="deleteGroup(index)">删除</el-button>
+            </div>
+          </div>
         </template>
-      </el-table-column>
-      <el-table-column prop="name" label="名称" width="200" />
-      <el-table-column prop="type" label="类型" width="100" />
-      <el-table-column label="包含代理" min-width="300">
-        <template #default="{ row }">
-          <el-tag v-for="p in (row.proxies||[])" :key="p" size="small"
-            :type="p === 'DIRECT' ? 'success' : p === 'REJECT' ? 'danger' : ''"
-            style="margin:1px 3px 1px 0">{{ p }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="剔除" width="120" v-if="hasExcludes">
-        <template #default="{ row }">
-          <el-tag v-if="row.exclude && row.exclude.length" size="small" type="danger"
-            v-for="e in row.exclude" :key="e" style="margin:1px 2px">{{ e }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="180" fixed="right">
-        <template #default="{ row, $index }">
-          <el-button size="small" @click="editGroup(row, $index)">编辑</el-button>
-          <el-button size="small" type="danger" @click="deleteGroup($index)">删除</el-button>
-        </template>
-      </el-table-column>
-    </el-table>
+      </draggable>
+    </div>
 
     <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑代理组' : '添加代理组'" width="650px" :close-on-click-modal="false">
       <el-form :model="currentGroup" label-width="120px">
@@ -45,25 +41,19 @@
             <el-option v-for="t in groupTypes" :key="t.type" :label="t.label" :value="t.type" />
           </el-select>
         </el-form-item>
-
-        <!-- 包含代理 -->
         <el-form-item label="包含代理">
           <el-select v-model="currentGroup.proxies" multiple filterable style="width:100%"
             placeholder="选择策略组/节点/DIRECT/REJECT">
             <el-option v-for="proxy in availableProxies" :key="proxy" :label="proxy" :value="proxy" />
           </el-select>
         </el-form-item>
-
-        <!-- 剔除节点 -->
         <el-form-item label="剔除节点">
           <el-select v-model="currentGroup.exclude" multiple filterable style="width:100%"
-            placeholder="选择要从本组排除的节点">
+            placeholder="选择要排除的节点">
             <el-option v-for="proxy in allNodes" :key="proxy" :label="proxy" :value="proxy" />
           </el-select>
-          <div style="font-size:12px;color:#909399;margin-top:4px">选中的节点不会出现在本策略组的可选列表中</div>
+          <div style="font-size:12px;color:#909399;margin-top:4px">选中的节点不会出现在本组的可选列表</div>
         </el-form-item>
-
-        <!-- url-test/fallback/load-balance 专有字段 -->
         <template v-if="currentGroup.type !== 'select'">
           <el-form-item label="测试 URL">
             <el-input v-model="currentGroup.url" placeholder="http://www.gstatic.com/generate_204" />
@@ -76,7 +66,6 @@
           </el-form-item>
         </template>
       </el-form>
-
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
         <el-button type="primary" @click="saveGroup">保存</el-button>
@@ -86,9 +75,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import draggable from 'vuedraggable'
 
 const props = defineProps({ category: Object, config: Object })
 const emit = defineEmits(['update'])
@@ -98,100 +88,110 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editIndex = ref(-1)
 
-const defaultGroup = () => ({
-  name: '',
-  type: 'select',
-  proxies: [],
-  exclude: [],
-  url: 'http://www.gstatic.com/generate_204',
-  interval: 300,
-  tolerance: 50
-})
+const defaultGroup = () => ({ name: '', type: 'select', proxies: [], exclude: [], url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 })
 
 const currentGroup = ref(defaultGroup())
 
+// Local copy of proxy groups for drag reordering
+const localGroups = ref([])
+
+// Sync localGroups from config
+watch(() => props.config['proxy-groups'], (val) => {
+  localGroups.value = val ? [...val] : []
+}, { immediate: true, deep: true })
+
+// When localGroups change (drag), emit update
+watch(localGroups, (val) => {
+  emit('update', 'proxy-groups', val)
+}, { deep: true })
+
 const proxyGroups = computed(() => props.config['proxy-groups'] || [])
 
-// 所有节点名（纯节点，不含策略组）
 const allNodes = computed(() => (props.config.proxies || []).map(p => p.name))
 
-// 所有可选对象（节点 + 其他策略组 + 内置）
 const availableProxies = computed(() => {
   const proxies = allNodes.value
-  const groups = (props.config['proxy-groups'] || [])
+  const groups = (localGroups.value || [])
     .filter(g => g.name !== currentGroup.value.name)
     .map(g => g.name)
   return [...proxies, ...groups, 'DIRECT', 'REJECT', 'PASS']
 })
 
 const hasExcludes = computed(() =>
-  (props.config['proxy-groups'] || []).some(g => g.exclude && g.exclude.length)
+  (localGroups.value || []).some(g => g.exclude && g.exclude.length)
 )
 
-const onTypeChange = () => {
-  // 切换类型时保留名称和已有的基础字段
-  const name = currentGroup.value.name
-  const proxies = currentGroup.value.proxies || []
-  const exclude = currentGroup.value.exclude || []
-  currentGroup.value = { ...defaultGroup(), name, type: currentGroup.value.type, proxies, exclude }
+const typeTag = (t) => {
+  const map = { select: '', 'url-test': 'warning', fallback: 'danger', 'load-balance': 'info' }
+  return map[t] || ''
 }
 
-const showAddDialog = () => {
-  isEdit.value = false
-  currentGroup.value = { ...defaultGroup() }
-  dialogVisible.value = true
+const onTypeChange = () => {
+  const n = currentGroup.value.name
+  const p = currentGroup.value.proxies || []
+  const e = currentGroup.value.exclude || []
+  currentGroup.value = { ...defaultGroup(), name: n, type: currentGroup.value.type, proxies: p, exclude: e }
 }
+
+const showAddDialog = () => { isEdit.value = false; currentGroup.value = { ...defaultGroup() }; dialogVisible.value = true }
 
 const editGroup = (row, index) => {
-  isEdit.value = true
-  editIndex.value = index
+  isEdit.value = true; editIndex.value = index
   currentGroup.value = {
-    name: row.name || '',
-    type: row.type || 'select',
-    proxies: [...(row.proxies || [])],
-    exclude: [...(row.exclude || [])],
+    name: row.name || '', type: row.type || 'select',
+    proxies: [...(row.proxies || [])], exclude: [...(row.exclude || [])],
     url: row.url || 'http://www.gstatic.com/generate_204',
-    interval: row.interval || 300,
-    tolerance: row.tolerance || 50
+    interval: row.interval || 300, tolerance: row.tolerance || 50
   }
   dialogVisible.value = true
 }
 
 const saveGroup = () => {
-  if (!currentGroup.value.name) { ElMessage.error('请填写代理组名称'); return }
-  if (!currentGroup.value.proxies || currentGroup.value.proxies.length === 0) {
-    ElMessage.error('请选择至少一个代理'); return
-  }
-
+  if (!currentGroup.value.name) { ElMessage.error('请填写名称'); return }
+  if (!currentGroup.value.proxies || !currentGroup.value.proxies.length) { ElMessage.error('请选择至少一个代理'); return }
   const data = { ...currentGroup.value }
-  // 剔除节点为空时去掉
-  if (!data.exclude || data.exclude.length === 0) delete data.exclude
-  // select 类型不需要 url/interval/tolerance
+  if (!data.exclude || !data.exclude.length) delete data.exclude
   if (data.type === 'select') { delete data.url; delete data.interval; delete data.tolerance }
-  // url-test/fallback 不需要 tolerance
   if (data.type !== 'url-test') delete data.tolerance
-
-  const newGroups = [...proxyGroups.value]
-  if (isEdit.value && editIndex.value >= 0) {
-    newGroups[editIndex.value] = data
-  } else {
-    newGroups.push(data)
-  }
-  emit('update', 'proxy-groups', newGroups)
-  dialogVisible.value = false
-  ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
+  const newGroups = [...localGroups.value]
+  if (isEdit.value && editIndex.value >= 0) newGroups[editIndex.value] = data
+  else newGroups.push(data)
+  localGroups.value = newGroups
+  dialogVisible.value = false; ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
 }
 
-const deleteGroup = (index) => {
-  const newGroups = proxyGroups.value.filter((_, i) => i !== index)
-  emit('update', 'proxy-groups', newGroups)
-  ElMessage.success('删除成功')
+const deleteGroup = async (index) => {
+  const name = localGroups.value[index].name
+  // 检查是否有规则引用此策略组
+  const rules = (props.config.rules || []).filter(r => r.endsWith(',' + name) || r === name)
+  let msg = `确定删除策略组 "${name}"？`
+  if (rules.length) msg += `\\n\\n⚠️ ${rules.length} 条规则引用了此策略组，删除后这些规则会失效！`
+  try {
+    await ElMessageBox.confirm(msg, '确认删除', { confirmButtonText: '删除', type: rules.length ? 'warning' : 'info' })
+    localGroups.value = localGroups.value.filter((_, i) => i !== index)
+    ElMessage.success('已删除' + (rules.length ? `，${rules.length} 条引用规则需手动处理` : ''))
+  } catch {}
 }
 </script>
 
 <style scoped>
 .proxy-group-table { width: 100%; }
-.table-header { display:flex; justify-content:space-between; margin-bottom:16px; align-items:center; }
-.drag-handle { cursor:grab; color:#999; font-size:16px; user-select:none; }
-.drag-handle:active { cursor:grabbing; }
+.table-header { display:flex; justify-content:space-between; margin-bottom:12px; align-items:center; }
+.drag-list { border:1px solid #e4e7ed; border-radius:4px; overflow:hidden; }
+.drag-row {
+  display:flex; align-items:center; padding:8px 12px; border-bottom:1px solid #f0f0f0;
+  transition:background 0.15s; gap:8px;
+}
+.drag-row:last-child { border-bottom:none; }
+.drag-row:hover { background:#f5f7fa; }
+.drag-row.has-exclude { border-left:3px solid #e6a23c; }
+.ghost { opacity:0.4; background:#e6f7ff; }
+.drag-handle { cursor:grab; color:#bbb; font-size:18px; width:24px; text-align:center; user-select:none; flex-shrink:0; }
+.drag-handle:active { cursor:grabbing; color:#409eff; }
+.drag-col { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.name-col { width:180px; font-weight:500; }
+.type-col { width:90px; flex-shrink:0; }
+.proxies-col { flex:1; min-width:200px; }
+.exclude-col { width:120px; flex-shrink:0; }
+.actions-col { width:160px; flex-shrink:0; text-align:right; }
 </style>

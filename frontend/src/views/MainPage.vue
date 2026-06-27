@@ -19,6 +19,7 @@
           <div class="oc-header-left">
             <el-button type="primary" @click="pullOpenClash" :loading="ocLoading">拉取文件</el-button>
             <el-button type="success" @click="applyOpenClash" :loading="applyOCLoading">应用修改</el-button>
+          <el-button @click="validateConfig" :loading="validating">校验</el-button>
           </div>
           <el-tag v-if="ocActiveConfig" type="info" effect="plain">
             当前: {{ ocActiveConfig }}
@@ -115,6 +116,7 @@ const tplContent = ref('')
 
 // 上传
 const importUrl = ref('')
+const validating = ref(false)
 const urlLoading = ref(false)
 
 const onGroupsSave = (serialized) => {
@@ -249,6 +251,24 @@ const deleteTemplate = async (tpl) => {
 }
 
 // ===== 上传文件 =====
+const validateConfig = async () => {
+  validating.value = true
+  try {
+    const resp = await fetch('/api/config/validate', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({config: configStore.config})
+    })
+    const res = await resp.json()
+    if (res.success) {
+      if (res.errors && res.errors.length) ElMessage.warning(`发现 ${res.errors.length} 个错误`)
+      else if (res.warnings && res.warnings.length) ElMessage.warning(`${res.warnings.length} 个警告`)
+      else ElMessage.success('✅ 配置校验通过')
+    } else ElMessage.error('校验失败')
+  } catch (e) { ElMessage.error('校验出错: ' + e.message) }
+  finally { validating.value = false }
+}
+
 const importFromUrl = async () => {
   if (!importUrl.value) return
   urlLoading.value = true
