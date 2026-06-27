@@ -152,8 +152,35 @@ const saveGroup = () => {
   if (data.type === 'select') { delete data.url; delete data.interval; delete data.tolerance }
   if (data.type !== 'url-test') delete data.tolerance
   const newGroups = [...localGroups.value]
-  if (isEdit.value && editIndex.value >= 0) newGroups[editIndex.value] = data
-  else newGroups.push(data)
+  // 检测重命名：更新规则和其他策略组中的引用
+  if (isEdit.value && editIndex.value >= 0) {
+    const oldName = newGroups[editIndex.value].name
+    newGroups[editIndex.value] = data
+    if (oldName !== data.name) {
+      // 更新 rules 中的引用
+      const allRules = props.config.rules || []
+      const updatedRules = allRules.map(r => {
+        const parts = r.split(',')
+        if (parts.length >= 3 && parts[2].trim() === oldName) {
+          parts[2] = data.name
+          return parts.join(',')
+        }
+        if (r === oldName) return data.name
+        return r
+      })
+      emit("update", "rules", updatedRules)
+      // 更新其他策略组中的引用
+      for (let i = 0; i < newGroups.length; i++) {
+        if (i === editIndex.value) continue
+        const g = newGroups[i]
+        if (g.proxies) {
+          g.proxies = g.proxies.map(p => p === oldName ? data.name : p)
+        }
+      }
+    }
+  } else {
+    newGroups.push(data)
+  }
   localGroups.value = newGroups; _syncing=true; emit("update", "proxy-groups", newGroups); _syncing=false
   dialogVisible.value = false; ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
 }
