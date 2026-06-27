@@ -13,18 +13,18 @@
         </template>
       </el-table-column>
       <el-table-column prop="name" label="名称" width="200" />
-      <el-table-column prop="type" label="类型" width="120" />
-      <el-table-column label="代理列表" min-width="350">
+      <el-table-column prop="type" label="类型" width="100" />
+      <el-table-column label="包含代理" min-width="300">
         <template #default="{ row }">
-          <el-tag
-            v-for="proxy in row.proxies"
-            :key="proxy"
-            size="small"
-            :type="proxy === 'DIRECT' ? 'success' : proxy === 'REJECT' ? 'danger' : ''"
-            style="margin-right: 4px; margin-bottom: 2px"
-          >
-            {{ proxy }}
-          </el-tag>
+          <el-tag v-for="p in (row.proxies||[])" :key="p" size="small"
+            :type="p === 'DIRECT' ? 'success' : p === 'REJECT' ? 'danger' : ''"
+            style="margin:1px 3px 1px 0">{{ p }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="剔除" width="120" v-if="hasExcludes">
+        <template #default="{ row }">
+          <el-tag v-if="row.exclude && row.exclude.length" size="small" type="danger"
+            v-for="e in row.exclude" :key="e" style="margin:1px 2px">{{ e }}</el-tag>
         </template>
       </el-table-column>
       <el-table-column label="操作" width="180" fixed="right">
@@ -35,71 +35,46 @@
       </el-table-column>
     </el-table>
 
-    <el-dialog
-      v-model="dialogVisible"
-      :title="isEdit ? '编辑代理组' : '添加代理组'"
-      width="600px"
-      :close-on-click-modal="false"
-    >
+    <el-dialog v-model="dialogVisible" :title="isEdit ? '编辑代理组' : '添加代理组'" width="650px" :close-on-click-modal="false">
       <el-form :model="currentGroup" label-width="120px">
         <el-form-item label="名称">
-          <el-input v-model="currentGroup.name" placeholder="策略组名称" />
+          <el-input v-model="currentGroup.name" placeholder="如：🔰 节点选择" />
         </el-form-item>
         <el-form-item label="类型">
-          <el-select v-model="currentGroup.type" @change="onTypeChange" :disabled="isEdit">
-            <el-option
-              v-for="type in groupTypes"
-              :key="type.type"
-              :label="type.label"
-              :value="type.type"
-            />
+          <el-select v-model="currentGroup.type" @change="onTypeChange">
+            <el-option v-for="t in groupTypes" :key="t.type" :label="t.label" :value="t.type" />
           </el-select>
         </el-form-item>
 
-        <el-form-item
-          v-for="field in currentFields"
-          :key="field.key"
-          :label="field.label"
-          :required="field.required"
-        >
-          <el-input
-            v-if="field.type === 'string'"
-            v-model="currentGroup[field.key]"
-            :placeholder="field.default || field.label"
-          />
-          <el-input-number
-            v-else-if="field.type === 'number'"
-            v-model="currentGroup[field.key]"
-            :placeholder="field.default"
-            style="width: 100%"
-          />
-          <el-select
-            v-else-if="field.type === 'select'"
-            v-model="currentGroup[field.key]"
-          >
-            <el-option
-              v-for="option in field.options"
-              :key="option"
-              :label="option"
-              :value="option"
-            />
-          </el-select>
-          <el-select
-            v-else-if="field.type === 'array' && field.key === 'proxies'"
-            v-model="currentGroup[field.key]"
-            multiple
-            placeholder="选择代理（可搜索）"
-            filterable
-            style="width: 100%"
-          >
-            <el-option
-              v-for="proxy in availableProxies"
-              :key="proxy"
-              :label="proxy"
-              :value="proxy"
-            />
+        <!-- 包含代理 -->
+        <el-form-item label="包含代理">
+          <el-select v-model="currentGroup.proxies" multiple filterable style="width:100%"
+            placeholder="选择策略组/节点/DIRECT/REJECT">
+            <el-option v-for="proxy in availableProxies" :key="proxy" :label="proxy" :value="proxy" />
           </el-select>
         </el-form-item>
+
+        <!-- 剔除节点 -->
+        <el-form-item label="剔除节点">
+          <el-select v-model="currentGroup.exclude" multiple filterable style="width:100%"
+            placeholder="选择要从本组排除的节点">
+            <el-option v-for="proxy in allNodes" :key="proxy" :label="proxy" :value="proxy" />
+          </el-select>
+          <div style="font-size:12px;color:#909399;margin-top:4px">选中的节点不会出现在本策略组的可选列表中</div>
+        </el-form-item>
+
+        <!-- url-test/fallback/load-balance 专有字段 -->
+        <template v-if="currentGroup.type !== 'select'">
+          <el-form-item label="测试 URL">
+            <el-input v-model="currentGroup.url" placeholder="http://www.gstatic.com/generate_204" />
+          </el-form-item>
+          <el-form-item label="测试间隔(秒)">
+            <el-input-number v-model="currentGroup.interval" :min="10" :max="3600" style="width:100%" />
+          </el-form-item>
+          <el-form-item v-if="currentGroup.type === 'url-test'" label="容差(ms)">
+            <el-input-number v-model="currentGroup.tolerance" :min="0" :max="1000" style="width:100%" />
+          </el-form-item>
+        </template>
       </el-form>
 
       <template #footer>
@@ -115,81 +90,93 @@ import { ref, computed } from 'vue'
 import { Plus } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 
-const props = defineProps({
-  category: Object,
-  config: Object
-})
-
+const props = defineProps({ category: Object, config: Object })
 const emit = defineEmits(['update'])
 
 const groupTypes = computed(() => props.category.types || [])
 const dialogVisible = ref(false)
 const isEdit = ref(false)
-const currentGroup = ref({})
 const editIndex = ref(-1)
-const currentFields = ref([])
+
+const defaultGroup = () => ({
+  name: '',
+  type: 'select',
+  proxies: [],
+  exclude: [],
+  url: 'http://www.gstatic.com/generate_204',
+  interval: 300,
+  tolerance: 50
+})
+
+const currentGroup = ref(defaultGroup())
 
 const proxyGroups = computed(() => props.config['proxy-groups'] || [])
+
+// 所有节点名（纯节点，不含策略组）
+const allNodes = computed(() => (props.config.proxies || []).map(p => p.name))
+
+// 所有可选对象（节点 + 其他策略组 + 内置）
 const availableProxies = computed(() => {
-  const proxies = (props.config.proxies || []).map(p => p.name)
+  const proxies = allNodes.value
   const groups = (props.config['proxy-groups'] || [])
     .filter(g => g.name !== currentGroup.value.name)
     .map(g => g.name)
   return [...proxies, ...groups, 'DIRECT', 'REJECT', 'PASS']
 })
 
-const onTypeChange = () => {
-  const type = groupTypes.value.find(t => t.type === currentGroup.value.type)
-  currentFields.value = type?.fields || []
+const hasExcludes = computed(() =>
+  (props.config['proxy-groups'] || []).some(g => g.exclude && g.exclude.length)
+)
 
-  const newGroup = { type: currentGroup.value.type }
-  currentFields.value.forEach(field => {
-    if (field.default !== undefined) {
-      newGroup[field.key] = field.default
-    } else if (field.type === 'array') {
-      newGroup[field.key] = []
-    }
-  })
-  // 保留名称
-  if (currentGroup.value.name) newGroup.name = currentGroup.value.name
-  currentGroup.value = newGroup
+const onTypeChange = () => {
+  // 切换类型时保留名称和已有的基础字段
+  const name = currentGroup.value.name
+  const proxies = currentGroup.value.proxies || []
+  const exclude = currentGroup.value.exclude || []
+  currentGroup.value = { ...defaultGroup(), name, type: currentGroup.value.type, proxies, exclude }
 }
 
 const showAddDialog = () => {
   isEdit.value = false
-  currentGroup.value = { type: 'select', name: '' }
-  const type = groupTypes.value.find(t => t.type === 'select')
-  currentFields.value = type?.fields || []
+  currentGroup.value = { ...defaultGroup() }
   dialogVisible.value = true
 }
 
 const editGroup = (row, index) => {
   isEdit.value = true
   editIndex.value = index
-  currentGroup.value = { ...row }
-  const type = groupTypes.value.find(t => t.type === row.type)
-  currentFields.value = type?.fields || []
+  currentGroup.value = {
+    name: row.name || '',
+    type: row.type || 'select',
+    proxies: [...(row.proxies || [])],
+    exclude: [...(row.exclude || [])],
+    url: row.url || 'http://www.gstatic.com/generate_204',
+    interval: row.interval || 300,
+    tolerance: row.tolerance || 50
+  }
   dialogVisible.value = true
 }
 
 const saveGroup = () => {
-  if (!currentGroup.value.name) {
-    ElMessage.error('请填写代理组名称')
-    return
+  if (!currentGroup.value.name) { ElMessage.error('请填写代理组名称'); return }
+  if (!currentGroup.value.proxies || currentGroup.value.proxies.length === 0) {
+    ElMessage.error('请选择至少一个代理'); return
   }
 
-  if (!currentGroup.value.proxies || currentGroup.value.proxies.length === 0) {
-    ElMessage.error('请选择至少一个代理')
-    return
-  }
+  const data = { ...currentGroup.value }
+  // 剔除节点为空时去掉
+  if (!data.exclude || data.exclude.length === 0) delete data.exclude
+  // select 类型不需要 url/interval/tolerance
+  if (data.type === 'select') { delete data.url; delete data.interval; delete data.tolerance }
+  // url-test/fallback 不需要 tolerance
+  if (data.type !== 'url-test') delete data.tolerance
 
   const newGroups = [...proxyGroups.value]
-  if (isEdit.value) {
-    newGroups[editIndex.value] = { ...currentGroup.value }
+  if (isEdit.value && editIndex.value >= 0) {
+    newGroups[editIndex.value] = data
   } else {
-    newGroups.push({ ...currentGroup.value })
+    newGroups.push(data)
   }
-
   emit('update', 'proxy-groups', newGroups)
   dialogVisible.value = false
   ElMessage.success(isEdit.value ? '修改成功' : '添加成功')
@@ -203,24 +190,8 @@ const deleteGroup = (index) => {
 </script>
 
 <style scoped>
-.proxy-group-table {
-  width: 100%;
-}
-
-.table-header {
-  display: flex;
-  justify-content: space-between;
-  margin-bottom: 16px;
-  align-items: center;
-}
-
-.drag-handle {
-  cursor: grab;
-  color: #999;
-  font-size: 16px;
-  user-select: none;
-}
-.drag-handle:active {
-  cursor: grabbing;
-}
+.proxy-group-table { width: 100%; }
+.table-header { display:flex; justify-content:space-between; margin-bottom:16px; align-items:center; }
+.drag-handle { cursor:grab; color:#999; font-size:16px; user-select:none; }
+.drag-handle:active { cursor:grabbing; }
 </style>
