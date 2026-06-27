@@ -1077,6 +1077,22 @@ app.post('/api/router/push', async (req, res) => {
         console.error('Hot reload failed (non-fatal):', e.message);
       }
     }
+        // Clash API hot-reload after push
+    if (triggerReload && n > 0 && files[0]) {
+      try {
+        const lf = files[0].local;
+        let yc = await fs.readFile(path.join(configDir, lf), 'utf-8');
+        yc = yc.replace(/^(\\s*)external-ui:.*$/gm, '$1external-ui: /etc/openclash/ui');
+        yc = yc.replace(/127\\\\.0\\\\.0\\\\.1(:\\\d+)/g, '0.0.0.0$1');
+        const pl = JSON.stringify({ payload: yc });
+        await new Promise((resv, rej) => {
+          const r = http.request({ hostname:CLASH_API_HOST,port:9090,path:'/configs?force=true',method:'PUT',
+            headers:{'Content-Type':'application/json','Content-Length':Buffer.byteLength(pl),'Authorization':'Bearer '+CLASH_SECRET}
+          }, (rp)=>{let b='';rp.on('data',c=>b+=c);rp.on('end',()=>rp.statusCode===204?resv():rej(new Error(b)))});
+          r.on('error',rej); r.write(pl); r.end();
+        });
+      } catch(e) { console.error('hot-reload:', e.message); }
+    }
     res.json({ success: true, pushed: n, reloaded: !!triggerReload });
 
 
