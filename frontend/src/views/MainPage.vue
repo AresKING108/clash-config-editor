@@ -258,7 +258,7 @@ const deleteTemplate = async (tpl) => {
   try {
     await ElMessageBox.confirm(`确定删除 "${tpl}"？`)
     const map = { 'groups.txt':'subconverter_groups.txt', 'pref.ini':'subconverter_pref.ini', 'emoji.txt':'subconverter_emoji.txt', 'all_base.tpl':'subconverter_rules/rules/all_base.tpl' }
-    await fetch(`/api/files/delete/${map[tpl]||tpl}`, { method:'DELETE' })
+    await fetch(`/api/files/${map[tpl]||tpl}`, { method:'DELETE' })
     templateList.value = templateList.value.filter(t => t !== tpl)
     if (selectedTemplate.value === tpl) { selectedTemplate.value = ''; tplContent.value = '' }
     ElMessage.success('已删除')
