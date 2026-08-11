@@ -19,7 +19,6 @@
           <div class="oc-header-left">
             <el-button type="primary" @click="pullOpenClash" :loading="ocLoading">拉取文件</el-button>
             <el-button type="success" @click="applyOpenClash" :loading="applyOCLoading">应用修改</el-button>
-          <el-button @click="validateConfig" :loading="validating">校验</el-button>
           <el-button @click="saveAsTemplate">另存为模板</el-button>
           </div>
           <el-tag v-if="ocActiveConfig" type="info" effect="plain">
@@ -32,37 +31,6 @@
         <div v-else class="placeholder">
           <p>点击「拉取文件」获取路由器上当前 OpenClash 的 YAML 配置</p>
           <p class="sub">之后可在下方标签页中可视化编辑节点、策略组、规则等</p>
-        </div>
-      </el-tab-pane>
-
-      <!-- ============ Subconverter 模板 ============ -->
-      <el-tab-pane label="Subconverter 模板" name="subconverter">
-        <div class="tab-section">
-          <div class="sc-header">
-            <el-space>
-              <el-button type="primary" @click="pullTemplates" :loading="tplLoading">拉取模板</el-button>
-          <el-button @click="refreshTemplateList">刷新列表</el-button>
-              <el-select v-model="selectedTemplate" placeholder="选择模板" style="width: 240px" @change="loadTemplateFile">
-                <el-option v-for="tpl in templateList" :key="tpl" :label="tpl" :value="tpl">
-                  <span>{{ tpl }}</span>
-                  <el-button type="danger" size="small" circle style="float:right;padding:2px;min-width:20px;font-size:11px" @click.stop="deleteTemplate(tpl)">✕</el-button>
-                </el-option>
-              </el-select>
-              <el-button type="warning" @click="pushTemplates" :loading="pushTplLoading">推送模板</el-button>
-            </el-space>
-          </div>
-          <div v-if="selectedTemplate === 'groups.txt'" class="tpl-editor-area" style="overflow:auto;background:#fff;padding:12px">
-            <GroupsEditor v-model="tplContent" @save="onGroupsSave" />
-          </div>
-          <div v-else class="tpl-editor-area">
-            <textarea v-model="tplContent" class="code-textarea" spellcheck="false" placeholder="点击「拉取模板」获取 Subconverter 模板文件..."></textarea>
-          </div>
-          <div class="tpl-bottom">
-            <el-space>
-              <el-button type="primary" @click="saveTemplate" :disabled="!selectedTemplate">保存修改</el-button>
-              <el-button @click="showSaveAsDialog">另添加为新模板</el-button>
-            </el-space>
-          </div>
         </div>
       </el-tab-pane>
 
@@ -302,7 +270,7 @@ const saveAsTemplate = async () => {
       ElMessage.success("已保存为: " + (res.template || value))
       templateList.value.push(value)
       // push to router
-      const pushRes = await fetch("/api/router/push", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:[{local:res.template,remote:"/etc/subconverter/" + res.template}],triggerReload:false})})
+      const pushRes = await fetch("/api/router/push", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({files:[{local:res.template,remote:"/etc/subconverter/config/" + res.template}],triggerReload:false})})
       const pushData = await pushRes.json()
       if (pushData.success) ElMessage.success("已推送到路由器")
       else ElMessage.warning("保存成功但推送失败")
