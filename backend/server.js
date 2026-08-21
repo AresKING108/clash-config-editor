@@ -1161,13 +1161,22 @@ app.post('/api/router/push', async (req, res) => {
 
     }
 
-    // 通过 Clash API 热重载：path 方式加载 config/ 源文件（mihomo 从磁盘读取，2026-08-21 实证 204+生效）
-    // 认证 secret：预取的 root 副本值兜底 uci dashboard_password（权威来源）
+    // 通过 Clash API 热重载：payload 为「运行副本注入段 + 本地用户段」合并后的完整配置
+    // 运行副本（/etc/openclash/<name>.yaml）含 OpenClash 注入的 dns(7874)/secret/tun 段，
+    // 直接加载 config/ 源会丢 dns 段导致 DNS 全断（2026-08-21 实测）
     if (triggerReload && n > 0 && files && files[0]) {
       try {
-        const srcPath = '/etc/openclash/config/' + path.basename(files[0].remote);
+        const name = path.basename(files[0].remote);
+        const localYaml = await fs.readFile(path.join(configDir, files[0].local), 'utf-8');
+        const catRes = await sshStdio('cat ' + quoteRemote('/etc/openclash/' + name), { timeout: 15000 });
+        const rootCfg = yaml.load(catRes.stdout) || {};
+        const localCfg = yaml.load(localYaml) || {};
+        // 以运行副本为基础，本地用户可编辑段（顶层键）覆盖；dns/secret/tun 等注入段保留
+        const merged = { ...rootCfg, ...localCfg };
+        let yc = yaml.dump(merged, { indent: 2, lineWidth: -1, noRefs: true });
+        yc = yc.replace(/external-ui:.*/g, 'external-ui: /etc/openclash/ui');
         const secret = preSecret || await getClashSecret();
-        await clashReload({ data: { path: srcPath }, secret, port: prePort });
+        await clashReload({ data: { payload: yc }, secret, port: prePort });
       } catch(e) { res.json({ success: false, pushed: n, reloaded: false, reloadError: e.message, error: "热重载失败: " + (e.message || 'reload request failed') }); return; }
     }
 
