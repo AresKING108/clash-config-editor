@@ -38,6 +38,8 @@
 
 
 
+        <el-checkbox v-if="!embedded" v-model="autoPush" @change="(v) => localStorage.setItem('cce_autoPush', v ? '1' : '0')" style="margin-right: 8px">保存后推送并热重载</el-checkbox>
+
         <el-button v-if="!embedded" type="primary" :icon="Check" @click="saveConfig" :loading="saving">
 
 
@@ -227,7 +229,7 @@ import yaml from 'js-yaml'
 
 
 
-import { fileAPI, configAPI } from '@/api'
+import { fileAPI, configAPI, routerAPI } from '@/api'
 
 
 
@@ -285,6 +287,9 @@ const metadata = ref(null)
 
 
 const saving = ref(false)
+
+// 保存后自动推送并热重载（仅 openclash_*.yaml 生效），localStorage 记忆
+const autoPush = ref(localStorage.getItem('cce_autoPush') !== '0')
 
 
 
@@ -576,7 +581,42 @@ const saveConfig = async () => {
 
 
 
-      ElMessage.success('保存成功')
+      // 勾选"保存后推送并热重载"且当前是 openclash_*.yaml 时，推送路由器并触发重载
+      if (autoPush.value && /^openclash_/.test(configStore.currentFile || '')) {
+
+
+
+        const pushItem = { local: configStore.currentFile, remote: '/etc/openclash/config/' + configStore.currentFile.replace(/^openclash_/, '') }
+
+
+
+        const pr = await routerAPI.push([pushItem], true)
+
+
+
+        if (pr.success && pr.reloaded) ElMessage.success('保存成功，已推送并热重载')
+
+
+
+        else if (pr.success) ElMessage.warning('保存成功，但热重载失败: ' + (pr.reloadError || '未知错误'))
+
+
+
+        else ElMessage.warning('保存成功，但推送失败: ' + (pr.error || ''))
+
+
+
+
+
+      } else {
+
+
+
+        ElMessage.success('保存成功')
+
+
+
+      }
 
 
 

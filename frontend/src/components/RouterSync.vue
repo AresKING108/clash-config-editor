@@ -43,11 +43,15 @@
       <template #header>
         <span>推送到路由器</span>
       </template>
-      <p style="color: #909399; font-size: 13px">把当前编辑的配置推送到路由器，自动触发服务重载</p>
+      <p style="color: #909399; font-size: 13px">推送当前编辑的 OpenClash 配置到路由器，自动触发服务重载</p>
       <el-space>
-        <el-button type="success" @click="pushSubconverter" :loading="pushing">
-          推送 Subconverter 模板
-        </el-button>
+        <el-tooltip content="Subconverter Extended 需要 TOML 模板（pref.toml + config/*.toml），本地暂无 TOML 模板，待 save-as-template TOML 改造后启用" placement="top">
+          <span>
+            <el-button type="success" disabled>
+              推送 Subconverter 模板
+            </el-button>
+          </span>
+        </el-tooltip>
         <el-button type="success" @click="pushOpenClash" :loading="pushing">
           推送 OpenClash 配置
         </el-button>
@@ -86,7 +90,10 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { routerAPI } from '@/api'
+import { routerAPI, fileAPI } from '@/api'
+import { useConfigStore } from '@/stores/config'
+
+const configStore = useConfigStore()
 
 const statusMessage = ref('')
 const statusType = ref('info')
@@ -99,6 +106,13 @@ const pulling = ref(false)
 const pushing = ref(false)
 const reloading = ref(false)
 const deploying = ref(false)
+
+// 当前编辑的 OpenClash 文件 → 推送条目（推 config/ 源目录；root 运行副本由 OpenClash 管理，不覆盖）
+const currentOpenClashPush = () => {
+  const cur = configStore.currentFile
+  if (!cur || !/^openclash_.*\.yaml$/.test(cur)) return null
+  return { local: cur, remote: '/etc/openclash/config/' + cur.replace(/^openclash_/, '') }
+}
 
 const showMessage = (msg, type = 'info') => {
   statusMessage.value = msg
@@ -151,6 +165,8 @@ const pullConfig = async (type) => {
   }
 }
 
+// 已禁用（2026-08-21）：Subconverter Extended 需 TOML 模板（pref.toml + config/*.toml），本地无 TOML 模板；
+// 旧 ini 格式（groups.txt/pref.ini）Extended 不读，推了必失败。待 save-as-template TOML 改造后恢复。
 const pushSubconverter = async () => {
   pushing.value = true
   try {
@@ -172,16 +188,18 @@ const pushSubconverter = async () => {
 }
 
 const pushOpenClash = async () => {
+  const item = currentOpenClashPush()
+  if (!item) {
+    showMessage('请先拉取/打开一个 OpenClash 配置文件（openclash_*.yaml）', 'warning')
+    return
+  }
   pushing.value = true
   try {
-    // 推送到 /etc/openclash/config/ 目录
-    const files = [
-      { local: 'openclash_新模板.yaml', remote: '/etc/openclash/config/新模板.yaml' },
-      { local: 'openclash_糖果.yaml', remote: '/etc/openclash/config/糖果.yaml' },
-    ]
-    const res = await routerAPI.push(files, true)
-    if (res.success) {
-      showMessage(`已推送 ${res.pushed} 个文件，重载: ${res.reloaded}`, 'success')
+    const res = await routerAPI.push([item], true)
+    if (res.success && res.reloaded) {
+      showMessage(`已推送 ${res.pushed} 个文件，热重载成功`, 'success')
+    } else if (res.success) {
+      showMessage(`已推送 ${res.pushed} 个文件，但重载失败: ${res.reloadError || '未知错误'}`, 'warning')
     } else {
       showMessage('推送失败: ' + (res.error || ''), 'error')
     }
@@ -209,18 +227,25 @@ const reloadService = async (service) => {
 }
 
 const oneClickDeploy = async () => {
+  const item = currentOpenClashPush()
+  if (!item) {
+    showMessage('请先拉取/打开一个 OpenClash 配置文件（openclash_*.yaml）', 'warning')
+    return
+  }
   deploying.value = true
   try {
-    // 推送 subconverter 模板 + OpenClash 配置 + 触发重载
-    const files = [
-      { local: 'subconverter_groups.txt', remote: '/etc/subconverter/groups.txt' },
-    ]
-    if (activeConfig.value) {
-      files.push({ local: `openclash_${activeConfig.value}.yaml`, remote: `/etc/openclash/config/${activeConfig.value}.yaml` })
+    // 1) 保存当前编辑内容（走 fileAPI.save，含配置清理）
+    const saveRes = await fileAPI.save(configStore.currentFile, configStore.config)
+    if (!saveRes.success) {
+      showMessage('保存失败: ' + (saveRes.error || ''), 'error')
+      return
     }
-    const res = await routerAPI.push(files, true)
-    if (res.success) {
-      showMessage(`🚀 部署成功！已推送 ${res.pushed} 个文件，服务已重载`, 'success')
+    // 2) 推送 + 热重载
+    const res = await routerAPI.push([item], true)
+    if (res.success && res.reloaded) {
+      showMessage('🚀 部署成功！已保存、推送并热重载', 'success')
+    } else if (res.success) {
+      showMessage(`🚀 已保存并推送，但重载失败: ${res.reloadError || '未知错误'}`, 'warning')
     } else {
       showMessage('部署失败: ' + (res.error || ''), 'error')
     }

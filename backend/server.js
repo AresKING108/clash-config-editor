@@ -14,7 +14,13 @@ import multer from 'multer';
 
 import crypto from 'crypto';
 
-import { exec } from 'child_process';
+import os from 'os';
+
+import { exec, spawn } from 'child_process';
+
+import { createReadStream, createWriteStream } from 'fs';
+
+import { Readable } from 'stream';
 
 import { promisify } from 'util';
 
@@ -960,21 +966,98 @@ const ROUTER_USER = process.env.ROUTER_USER || 'root';
 const ROUTER_PORT = process.env.ROUTER_PORT || '22';
 
 const runSSH = (cmd, timeout = 15000) => {
-
-  return execAsync("ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -p " + ROUTER_PORT + " " + ROUTER_USER + "@" + ROUTER_HOST + " '" + cmd.replace(/'/g, "'\\''") + "'", { timeout });
-
+  // spawn 风格，参数数组直传，无本地 shell 转义问题（2026-08-21 统一）
+  return new Promise((resolve, reject) => {
+    const child = spawn('ssh', [
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'ConnectTimeout=10',
+      '-p', String(ROUTER_PORT),
+      ROUTER_USER + '@' + ROUTER_HOST,
+      cmd
+    ], { timeout, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', d => { stdout += d.toString(); });
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('close', code => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(stderr || 'exit code ' + code));
+    });
+    child.on('error', reject);
+  });
 };
 
+// 统一 SSH 执行（支持 stdin 流喂内容，用于 cat > 推送）
+// 路由器无 sftp-server，scp 必失败，文件传输一律走 SSH cat（2026-08-21 修复）
+const sshStdio = (cmd, { timeout = 15000, stdinStream = null } = {}) => {
+  return new Promise((resolve, reject) => {
+    const child = spawn('ssh', [
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'ConnectTimeout=10',
+      '-p', String(ROUTER_PORT),
+      ROUTER_USER + '@' + ROUTER_HOST,
+      cmd
+    ], { timeout, stdio: stdinStream ? ['pipe', 'pipe', 'pipe'] : ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let stdout = '', stderr = '';
+    child.stdout.on('data', d => { stdout += d.toString(); });
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('close', code => {
+      if (code === 0) resolve({ stdout, stderr });
+      else reject(new Error(stderr || 'exit code ' + code));
+    });
+    child.on('error', reject);
+    if (stdinStream) stdinStream.pipe(child.stdin);
+  });
+};
+
+const quoteRemote = (p) => "'" + p.replace(/'/g, "'\\''") + "'";
+
 const scpTo = (local, remote, timeout = 15000) => {
-
-  return execAsync('scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 -P ' + ROUTER_PORT + ' ' + local + ' ' + ROUTER_USER + '@' + ROUTER_HOST + ':' + remote, { timeout });
-
+  // ssh "cat > '<remote>'" + 本地文件流喂 stdin（二进制安全）
+  return sshStdio('cat > ' + quoteRemote(remote), { timeout, stdinStream: createReadStream(local) });
 };
 
 const scpFrom = (remote, local, timeout = 15000) => {
+  // ssh "cat '<remote>'" → stdout 写本地文件（二进制安全）
+  return new Promise((resolve, reject) => {
+    const child = spawn('ssh', [
+      '-o', 'StrictHostKeyChecking=no',
+      '-o', 'ConnectTimeout=10',
+      '-p', String(ROUTER_PORT),
+      ROUTER_USER + '@' + ROUTER_HOST,
+      'cat ' + quoteRemote(remote)
+    ], { timeout, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    let stderr = '';
+    const out = createWriteStream(local);
+    child.stdout.pipe(out);
+    child.stderr.on('data', d => { stderr += d.toString(); });
+    child.on('close', code => {
+      out.end();
+      if (code === 0) resolve({ stdout: '', stderr });
+      else reject(new Error(stderr || 'exit code ' + code));
+    });
+    child.on('error', (e) => { out.end(); reject(e); });
+  });
+};
 
-  return execAsync('scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 -P ' + ROUTER_PORT + ' ' + ROUTER_USER + '@' + ROUTER_HOST + ':' + remote + ' ' + local, { timeout });
+// 从 YAML 顶层解析 Clash API 凭据（不硬编码，secret 会变）
+const extractClashSecret = (txt) => { const m = txt.match(/^secret:\s*["']?([^"'\s]+)/m); return m ? m[1] : ''; };
 
+// 从 OpenClash uci 配置读 Clash API secret（dashboard_password，权威来源；不硬编码，2026-08-21 定位）
+const getClashSecret = async () => {
+  try {
+    const cmd = "grep -m1 dashboard_password /etc/config/openclash 2>/dev/null | awk -F\"'\" '{print $2}'";
+    const { stdout } = await runSSH(cmd, 10000);
+    return stdout.trim();
+  } catch(e) { return ''; }
+};
+const extractClashPort = (txt) => { const m = txt.match(/^external-controller:\s*["']?([^"'\s]+)/m); const pm = m && m[1].match(/:(\d+)$/); return pm ? parseInt(pm[1], 10) : 9090; };
+
+// 路由器本地 curl 调 Clash API（127.0.0.1 绑定也能用；body 走 stdin 避免转义地狱）；成功返回 204
+const clashReload = async (body, timeout = 30000) => {
+  const cmd = "curl -s -o /dev/null -w '%{http_code}' -X PUT 'http://127.0.0.1:" + (body.port || 9090) + "/configs?force=true' -H 'Content-Type: application/json'" + (body.secret ? " -H 'Authorization: Bearer " + body.secret + "'" : '') + " -d @-";
+  const { stdout } = await sshStdio(cmd, { timeout, stdinStream: Readable.from([JSON.stringify(body.data)]) });
+  if (stdout.trim() !== '204') throw new Error('Clash API 返回 HTTP ' + stdout.trim());
+  return stdout.trim();
 };
 
 app.get('/api/router/status', async (req, res) => {
@@ -1038,40 +1121,57 @@ app.post('/api/router/push', async (req, res) => {
 
     let n = 0;
 
+    // 预取内核当前 secret：OpenClash 会把 secret 注入到 root 运行副本（/etc/openclash/<name>.yaml），
+    // 必须在本轮 push 覆盖文件之前读取，否则解析不到（2026-08-21 端到端定位）
+    let preSecret = '', prePort = 9090;
+    if (triggerReload && files && files[0] && /\.ya?ml$/i.test(files[0].local || '')) {
+      try {
+        const rootPath = '/etc/openclash/' + path.basename(files[0].remote);
+        const catRes = await sshStdio('cat ' + quoteRemote(rootPath), { timeout: 15000 });
+        preSecret = extractClashSecret(catRes.stdout);
+        prePort = extractClashPort(catRes.stdout) || 9090;
+      } catch(e) { /* 运行副本不可读时退回本地解析 */ }
+    }
+
     for (const f of files || []) {
 
-      await scpTo(path.join(configDir, f.local), f.remote, 15000);
+      let localPath = path.join(configDir, f.local);
 
-      n++;
+      let tmpPath = null;
+
+      try {
+
+        // 磁盘文件也做 external-ui 替换，避免路由器 clash -t 校验失败
+        if (f.local && /\.ya?ml$/i.test(f.local)) {
+          tmpPath = path.join(os.tmpdir(), '.clash-push-' + crypto.randomUUID() + '-' + path.basename(f.local));
+          let c = await fs.readFile(localPath, 'utf-8');
+          c = c.replace(/external-ui:.*/g, 'external-ui: /etc/openclash/ui');
+          // provider path 规范化：OpenClash 约定 proxy-provider 缓存目录 ./proxy_provider/（本地可能存成 ./providers/，错误路径会导致节点丢失）
+          c = c.replace(/path:\s*\.\/providers\//g, 'path: ./proxy_provider/');
+          await fs.writeFile(tmpPath, c, 'utf-8');
+          localPath = tmpPath;
+        }
+
+        await scpTo(localPath, f.remote, 15000);
+        n++;
+
+      } finally {
+        if (tmpPath) { try { await fs.unlink(tmpPath); } catch {} }
+      }
 
     }
 
-    if (triggerReload) {
-
-
-    }
-
-    // 通过 Clash API 热重载（不重启进程）
+    // 通过 Clash API 热重载：path 方式加载 config/ 源文件（mihomo 从磁盘读取，2026-08-21 实证 204+生效）
+    // 认证 secret：预取的 root 副本值兜底 uci dashboard_password（权威来源）
     if (triggerReload && n > 0 && files && files[0]) {
       try {
-        const lf = files[0].local;
-        const fullPath = path.join(configDir, lf);
-        let yc = await fs.readFile(fullPath, 'utf-8');
-        yc = yc.replace(/external-ui:.*/g, 'external-ui: /etc/openclash/ui');
-        const { default: http } = await import('http');
-        const pl = JSON.stringify({ payload: yc });
-        await new Promise((resv, rej) => {
-          const r = http.request({
-            hostname: '192.168.32.1', port: 9090,
-            path: '/configs?force=true', method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(pl), 'Authorization': 'Bearer MwFBUWod' }
-          }, (rp) => { let b=''; rp.on('data',c=>b+=c); rp.on('end',() => rp.statusCode===204?resv():rej(new Error(b))); });
-          r.on('error', rej); r.write(pl); r.end();
-        });
-      } catch(e) { res.json({ success: true, pushed: n, reloaded: false, reloadError: e.message }); return; }
+        const srcPath = '/etc/openclash/config/' + path.basename(files[0].remote);
+        const secret = preSecret || await getClashSecret();
+        await clashReload({ data: { path: srcPath }, secret, port: prePort });
+      } catch(e) { res.json({ success: false, pushed: n, reloaded: false, reloadError: e.message, error: "热重载失败: " + (e.message || 'reload request failed') }); return; }
     }
 
-    res.json({ success: true, pushed: n, reloaded: !!triggerReload });
+    res.json({ success: true, pushed: n, reloaded: !!(triggerReload && n > 0 && files && files[0]) });
 
   } catch (e) {
 
@@ -1087,14 +1187,27 @@ app.post('/api/router/reload', async (req, res) => {
 
   try {
 
-    const cmds = [];
+    const output = [];
 
-    if (srv === 'subconverter' || srv === 'all') cmds.push('/etc/init.d/subconverter restart');
+    if (srv === 'subconverter' || srv === 'all') {
+      const { stdout } = await runSSH('/etc/init.d/subconverter-extended restart', 30000);
+      const out1 = stdout.trim();
+      output.push('subconverter-extended: ' + (out1 || 'ok'));
+    }
 
+    if (srv === 'openclash' || srv === 'all') {
+      // 取激活配置名 → secret 从 root 运行副本解析（OpenClash 注入版）→ path 方式重载 config/ 源文件
+      const activeRes = await runSSH('basename $(readlink /etc/openclash/cache.db 2>/dev/null) .db 2>/dev/null || echo unknown', 10000);
+      const name = activeRes.stdout.trim();
+      if (!name || name === 'unknown') throw new Error('无法确定当前激活的 OpenClash 配置');
+      const rootPath = '/etc/openclash/' + name + '.yaml';
+      const catRes = await sshStdio('cat ' + quoteRemote(rootPath), { timeout: 15000 });
+      const secret = extractClashSecret(catRes.stdout) || await getClashSecret();
+      const code = await clashReload({ data: { path: '/etc/openclash/config/' + name + '.yaml' }, secret, port: extractClashPort(catRes.stdout) || 9090 });
+      output.push('openclash ' + name + ': HTTP ' + code);
+    }
 
-    const { stdout } = await runSSH(cmds.join(' && '), 30000);
-
-    res.json({ success: true, output: stdout.trim() });
+    res.json({ success: true, output: output.join('; ') });
 
   } catch (e) {
 
@@ -1108,9 +1221,14 @@ app.get('/api/router/subconverter-status', async (req, res) => {
 
   try {
 
-    const { stdout } = await runSSH('curl -s --max-time 5 http://127.0.0.1:36611/version 2>/dev/null || echo unreachable', 10000);
+    const { stdout } = await runSSH('curl -s --max-time 5 http://127.0.0.1:25500/version 2>/dev/null || echo unreachable', 10000);
 
-    res.json({ success: true, version: stdout.trim() });
+    const v = stdout.trim();
+
+    // Extended 的 /version 返回 HTML 欢迎页（内含 Version vX.Y.Z），提取版本号
+    const vm = v.match(/v?\d+\.\d+\.\d+/);
+
+    res.json({ success: true, version: vm ? vm[0] : (v || 'unreachable') });
 
   } catch (e) {
 

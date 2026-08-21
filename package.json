@@ -1,6 +1,6 @@
 {
   "name": "clash-config-editor",
-  "version": "1.0.0",
+  "version": "1.6.0",
   "description": "Clash配置文件在线编辑器",
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",

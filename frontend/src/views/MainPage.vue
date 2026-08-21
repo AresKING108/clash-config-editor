@@ -146,10 +146,11 @@ const applyOpenClash = async () => {
     }
     await fileAPI.save(fn, cleanConfig)
     const pushRes = await routerAPI.push([
-      { local: fn, remote: `/etc/openclash/${ocActiveConfig.value}.yaml` }
+      { local: fn, remote: `/etc/openclash/config/${ocActiveConfig.value}.yaml` }
     ], true)
-    if (pushRes.success) ElMessage.success('✅ 已应用并重载')
-    else ElMessage.error('推送失败')
+    if (pushRes.success && pushRes.reloaded) ElMessage.success('✅ 已应用并重载')
+    else if (pushRes.success) ElMessage.warning('⚠️ 已推送但重载失败: ' + (pushRes.reloadError || '未知错误'))
+    else ElMessage.error('推送失败: ' + (pushRes.error || ''))
   } catch (e) { ElMessage.error('操作失败: ' + e.message) }
   finally { applyOCLoading.value = false }
 }
