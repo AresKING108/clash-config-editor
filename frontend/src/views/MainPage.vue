@@ -63,6 +63,7 @@ import { routerAPI, fileAPI } from '@/api'
 import { useConfigStore } from '@/stores/config'
 import ConfigEditor from './ConfigEditor.vue'
 import GroupsEditor from '@/components/GroupsEditor.vue'
+import { cleanConfigForSave } from '@/utils/clashClean'
 
 const configStore = useConfigStore()
 
@@ -139,12 +140,9 @@ const applyOpenClash = async () => {
   applyOCLoading.value = true
   try {
     const fn = `openclash_${ocActiveConfig.value}.yaml`
-    // 去掉编辑器特有字段，Clash 不认
-    const cleanConfig = JSON.parse(JSON.stringify(configStore.config))
-    if (cleanConfig["proxy-groups"]) {
-      cleanConfig["proxy-groups"] = cleanConfig["proxy-groups"].map(g => { const {exclude, ...rest} = g; return rest })
-    }
-    await fileAPI.save(fn, cleanConfig)
+        // 剔除节点(exclude-filter 关键词)原样保留；清理残留 exclude 数组字段
+        const cleanConfig = cleanConfigForSave(configStore.config)
+        await fileAPI.save(fn, cleanConfig)
     const pushRes = await routerAPI.push([
       { local: fn, remote: `/etc/openclash/config/${ocActiveConfig.value}.yaml` }
     ], true)
@@ -309,7 +307,7 @@ onMounted(() => { refreshAllStatus() })
 </script>
 
 <style scoped>
-.yaml-editor-app { padding: 12px 20px; height: calc(100vh - 32px); display:flex; flex-direction:column; }
+.yaml-editor-app { padding: 12px 20px; height: calc(100vh - 32px); display:flex; flex-direction:column; max-width: 1200px; margin: 0 auto; width: 100%; }
 .top-bar { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; padding-bottom:10px; border-bottom:1px solid #e4e7ed; }
 .app-title { font-size:22px; font-weight:700; color:#303133; }
 .top-actions { display:flex; align-items:center; gap:8px; }

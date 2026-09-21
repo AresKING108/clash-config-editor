@@ -8,7 +8,7 @@
     <div class="drag-list">
       <draggable v-model="localGroups" item-key="name" handle=".drag-handle" ghost-class="ghost" animation="200" @change="onDrag">
         <template #item="{ element: row, index }">
-          <div class="drag-row" :class="{ 'has-exclude': row.exclude && row.exclude.length }">
+          <div class="drag-row" :class="{ 'has-exclude': row.exclude && row.exclude.length, 'has-use': row.use && row.use.length }">
             <div class="drag-handle" title="拖拽排序">⠿</div>
             <div class="drag-col name-col">{{ row.name }}</div>
             <div class="drag-col type-col">
@@ -20,7 +20,10 @@
                 style="margin:1px 2px">{{ p }}</el-tag>
             </div>
             <div class="drag-col exclude-col" v-if="hasExcludes">
-              <el-tag v-for="e in (row.exclude||[])" :key="e" size="small" type="danger" style="margin:1px 2px">{{ e }}</el-tag>
+                          <el-tag v-for="e in (row['exclude-filter']||'').split('`')" :key="e" size="small" type="danger" style="margin:1px 2px">{{ e }}</el-tag>
+                        </div>
+            <div class="drag-col use-col" v-if="hasUse">
+              <el-tag v-for="u in (row.use||[])" :key="u" size="small" type="info" effect="plain" style="margin:1px 2px">{{ u }}</el-tag>
             </div>
             <div class="drag-col actions-col">
               <el-button size="small" @click="editGroup(row, index)">编辑</el-button>
@@ -48,11 +51,16 @@
           </el-select>
         </el-form-item>
         <el-form-item label="剔除节点">
-          <el-select v-model="currentGroup.exclude" multiple filterable style="width:100%"
-            placeholder="选择要排除的节点">
-            <el-option v-for="proxy in allNodes" :key="proxy" :label="proxy" :value="proxy" />
+                  <el-input v-model="currentGroup['exclude-filter']" style="width:100%"
+                    placeholder="填写关键词，匹配到的节点从本组剔除，如：香港丨 或 丨0.5x" />
+                  <div style="font-size:12px;color:#909399;margin-top:4px">按关键词匹配节点名，支持多个关键词用 ` 分隔（反引号）；仅对本策略组生效</div>
+                </el-form-item>
+        <el-form-item label="Provider 引用">
+          <el-select v-model="currentGroup.use" multiple filterable allow-create default-first-option style="width:100%"
+            placeholder="选择或输入 Provider 名（use）">
+            <el-option v-for="pn in providerNames" :key="pn" :label="pn" :value="pn" />
           </el-select>
-          <div style="font-size:12px;color:#909399;margin-top:4px">选中的节点不会出现在本组的可选列表</div>
+          <div style="font-size:12px;color:#909399;margin-top:4px">use 引用 proxy-providers 中定义的 Provider；与「包含代理」至少填一个</div>
         </el-form-item>
         <template v-if="currentGroup.type !== 'select'">
           <el-form-item label="测试 URL">
@@ -88,7 +96,7 @@ const dialogVisible = ref(false)
 const isEdit = ref(false)
 const editIndex = ref(-1)
 
-const defaultGroup = () => ({ name: '', type: 'select', proxies: [], exclude: [], url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 })
+const defaultGroup = () => ({ name: '', type: 'select', proxies: [], 'exclude-filter': '', use: [], url: 'http://www.gstatic.com/generate_204', interval: 300, tolerance: 50 })
 
 const currentGroup = ref(defaultGroup())
 
@@ -107,6 +115,146 @@ const proxyGroups = computed(() => props.config['proxy-groups'] || [])
 
 const allNodes = computed(() => (props.config.proxies || []).map(p => p.name))
 
+const providerNames = computed(() => {
+  const pp = props.config['proxy-providers']
+  if (!pp || typeof pp !== 'object') return []
+  return Object.keys(pp)
+})
+
+// 剔除节点的动态选项：解析当前组实际包含的所有节点（use 的 Provider 按 filter 过滤 + 包含代理引用的策略组展开）
+const providerNodesCache = ref(new Map()) // providerName -> string[]
+
+// 按 filter 正则过滤节点（非法正则退化为包含匹配）
+const applyFilter = (nodes, filter) => {
+  if (!filter) return nodes
+  try {
+    const re = new RegExp(filter)
+    return nodes.filter(n => re.test(n))
+  } catch {
+    return nodes.filter(n => n.includes(filter))
+  }
+}
+
+// 递归展开策略组：返回该组实际包含的节点集合
+const expandGroup = (groupName, seen = new Set()) => {
+  if (seen.has(groupName)) return []
+  seen.add(groupName)
+  const group = proxyGroups.value.find(g => g.name === groupName)
+  if (!group) return []
+  const result = []
+  // use 引用的 Provider → 按该组 filter 过滤
+  if (group.use && group.use.length) {
+    for (const pn of group.use) {
+      const nodes = providerNodesCache.value.get(pn) || []
+      result.push(...applyFilter(nodes, group.filter))
+    }
+  }
+  // proxies 里的子项：策略组递归展开 / Provider 直接取节点 / 其他按直节点
+  if (group.proxies && group.proxies.length) {
+    for (const p of group.proxies) {
+      const isSubGroup = proxyGroups.value.some(g => g.name === p)
+      const isProvider = providerNames.value.includes(p)
+      if (isSubGroup) {
+        result.push(...expandGroup(p, seen))
+      } else if (isProvider) {
+        const nodes = providerNodesCache.value.get(p) || []
+        result.push(...applyFilter(nodes, group.filter))
+      } else {
+        result.push(p)
+      }
+    }
+  }
+  return result
+}
+
+const excludeOptions = computed(() => {
+  const result = []
+  // 1. 当前组自身 use 引用的 Provider → 按当前组 filter 过滤
+  if (currentGroup.value.use && currentGroup.value.use.length) {
+    for (const pn of currentGroup.value.use) {
+      const nodes = providerNodesCache.value.get(pn) || []
+      result.push(...applyFilter(nodes, currentGroup.value.filter))
+    }
+  }
+  // 2. 当前组「包含代理」中引用的策略组 → 递归展开；直接节点/其他 → 原样
+  for (const name of (currentGroup.value.proxies || [])) {
+    const isGroup = proxyGroups.value.some(g => g.name === name)
+    if (isGroup) {
+      result.push(...expandGroup(name))
+    } else {
+      result.push(name)
+    }
+  }
+  // 3. 已有 exclude 字段的值（容错保留）
+  if (currentGroup.value.exclude && currentGroup.value.exclude.length) {
+    result.push(...currentGroup.value.exclude)
+  }
+  // 去重
+  return [...new Set(result)]
+})
+
+// 当「包含代理」或「Provider引用」变化时，获取 provider 节点（immediate 保证打开对话框时立即加载）
+watch(
+  () => [currentGroup.value.proxies, currentGroup.value.use],
+  async ([newProxies, newUse]) => {
+    const groups = proxyGroups.value
+    const providersToFetch = new Set()
+
+    // 递归收集一个策略组及其嵌套子组引用的所有 provider
+    const collectFromGroup = (group, seenGroups = new Set()) => {
+      if (!group || seenGroups.has(group.name)) return
+      seenGroups.add(group.name)
+      if (group.use && group.use.length) {
+        for (const pn of group.use) providersToFetch.add(pn)
+      }
+      if (group.proxies && group.proxies.length) {
+        for (const name of group.proxies) {
+          // proxies 里可能是 provider 名
+          if (providerNames.value.includes(name)) {
+            providersToFetch.add(name)
+          }
+          const sub = groups.find(g => g.name === name)
+          if (sub) collectFromGroup(sub, seenGroups)
+        }
+      }
+    }
+
+    // 1. 从 use 字段获取
+    if (newUse && newUse.length) {
+      for (const pn of newUse) providersToFetch.add(pn)
+    }
+    // 2. 从 proxies 中选中的策略组递归获取其引用的 provider
+    if (newProxies && newProxies.length) {
+      for (const name of newProxies) {
+        if (providerNames.value.includes(name)) {
+          providersToFetch.add(name)
+        }
+        const group = groups.find(g => g.name === name)
+        if (group) collectFromGroup(group)
+      }
+    }
+
+    // 只取未缓存的
+    const uncached = [...providersToFetch].filter(pn => !providerNodesCache.value.has(pn))
+    if (!uncached.length) return
+
+    // 并发获取未缓存的 provider 节点
+    const fetches = uncached.map(async (pn) => {
+      try {
+        const res = await fetch(`/api/router/proxy-provider-nodes/${encodeURIComponent(pn)}`)
+        if (res.ok) {
+          const data = await res.json()
+          providerNodesCache.value.set(pn, data.nodes || [])
+        }
+      } catch {}
+    })
+    await Promise.all(fetches)
+    // 触发响应式更新
+    providerNodesCache.value = new Map(providerNodesCache.value)
+  },
+  { immediate: true, deep: true }
+)
+
 const availableProxies = computed(() => {
   const proxies = allNodes.value
   const groups = (localGroups.value || [])
@@ -116,7 +264,11 @@ const availableProxies = computed(() => {
 })
 
 const hasExcludes = computed(() =>
-  (localGroups.value || []).some(g => g.exclude && g.exclude.length)
+  (localGroups.value || []).some(g => g['exclude-filter'])
+)
+
+const hasUse = computed(() =>
+  (localGroups.value || []).some(g => g.use && g.use.length)
 )
 
 const typeTag = (t) => {
@@ -127,8 +279,10 @@ const typeTag = (t) => {
 const onTypeChange = () => {
   const n = currentGroup.value.name
   const p = currentGroup.value.proxies || []
-  const e = currentGroup.value.exclude || []
-  currentGroup.value = { ...defaultGroup(), name: n, type: currentGroup.value.type, proxies: p, exclude: e }
+  const ef = currentGroup.value['exclude-filter'] || ''
+  const u = currentGroup.value.use || []
+  const f = currentGroup.value.filter
+  currentGroup.value = { ...defaultGroup(), name: n, type: currentGroup.value.type, proxies: p, 'exclude-filter': ef, use: u, ...(f !== undefined ? { filter: f } : {}) }
 }
 
 const showAddDialog = () => { isEdit.value = false; currentGroup.value = { ...defaultGroup() }; dialogVisible.value = true }
@@ -137,21 +291,25 @@ const editGroup = (row, index) => {
   isEdit.value = true; editIndex.value = index
   currentGroup.value = {
     name: row.name || '', type: row.type || 'select',
-    proxies: [...(row.proxies || [])], exclude: [...(row.exclude || [])],
+    proxies: [...(row.proxies || [])], 'exclude-filter': row['exclude-filter'] || '', use: [...(row.use || [])],
     url: row.url || 'http://www.gstatic.com/generate_204',
-    interval: row.interval || 300, tolerance: row.tolerance || 50
+    interval: row.interval || 300, tolerance: row.tolerance || 50,
+    ...(row.filter !== undefined ? { filter: row.filter } : {})
   }
   dialogVisible.value = true
 }
 
 const saveGroup = () => {
   if (!currentGroup.value.name) { ElMessage.error('请填写名称'); return }
-  if (!currentGroup.value.proxies || !currentGroup.value.proxies.length) { ElMessage.error('请选择至少一个代理'); return }
+  if ((!currentGroup.value.proxies || !currentGroup.value.proxies.length) && (!currentGroup.value.use || !currentGroup.value.use.length)) { ElMessage.error('请至少选择代理或 Provider 引用（use）之一'); return }
   const data = { ...currentGroup.value }
-  if (!data.exclude || !data.exclude.length) delete data.exclude
-  if (data.type === 'select') { delete data.url; delete data.interval; delete data.tolerance }
-  if (data.type !== 'url-test') delete data.tolerance
-  const newGroups = [...localGroups.value]
+    // 剔除节点：exclude-filter 关键词字符串，原样保存（空则删除字段）
+    if (!data['exclude-filter']) delete data['exclude-filter']
+    if (!data.use || !data.use.length) delete data.use
+    if (!data.filter) delete data.filter
+    if (data.type === 'select') { delete data.url; delete data.interval; delete data.tolerance }
+    if (data.type !== 'url-test') delete data.tolerance
+    const newGroups = [...localGroups.value]
   // 检测重命名：更新规则和其他策略组中的引用
   if (isEdit.value && editIndex.value >= 0) {
     const oldName = newGroups[editIndex.value].name
@@ -163,9 +321,17 @@ const saveGroup = () => {
       const allRules = props.config.rules || []
       const updatedRules = allRules.map(r => {
         const parts = r.split(',')
-        if (parts.length >= 3 && parts[2].trim() === oldName) {
-          parts[2] = data.name
-          return parts.join(',')
+        const ref = parts.length >= 2 ? parts[parts.length - 1] : r
+        if (ref.trim() === oldName) {
+          // 更新最后一个字段（策略位）为新组名
+          if (parts.length >= 3) {
+            parts[parts.length - 1] = data.name
+            return parts.join(',')
+          } else if (parts.length === 2) {
+            // 2段规则，第2段是策略，直接替换
+            parts[1] = data.name
+            return parts.join(',')
+          }
         }
         if (r === oldName) return data.name
         return r
@@ -191,7 +357,12 @@ const saveGroup = () => {
 const deleteGroup = async (index) => {
   const name = localGroups.value[index].name
   const allRules = props.config.rules || []
-  const refRules = allRules.filter(r => r.endsWith(',' + name) || r === name)
+  // 解析规则的策略字段，精确提取策略位进行比较
+  const refRules = allRules.filter(r => {
+    const parts = r.split(',');
+    const ref = parts.length >= 2 ? parts[parts.length - 1] : r;
+    return ref === name;
+  });
   let msg = `确定删除策略组 "${name}"？`
   if (refRules.length) msg += `\\n\\n将同时删除 ${refRules.length} 条引用此组的规则`
   try {
@@ -201,7 +372,12 @@ const deleteGroup = async (index) => {
     localGroups.value = filtered
     emit("update", "proxy-groups", filtered)
     if (refRules.length) {
-      const remainingRules = allRules.filter(r => !r.endsWith(',' + name) && r !== name)
+      // 同样使用解析后的逻辑过滤规则
+      const remainingRules = allRules.filter(r => {
+        const parts = r.split(',');
+        const ref = parts.length >= 2 ? parts[parts.length - 1] : r;
+        return ref !== name;
+      });
       emit("update", "rules", remainingRules)
     }
     // 从其他策略组的 proxies 里移除对本组的引用
@@ -218,8 +394,56 @@ const onDrag = () => { _syncing=true; emit("update", "proxy-groups", [...localGr
 </script>
 
 <style scoped>
-.proxy-group-table { width: 100%; }
+.proxy-group-table {
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  background: white;
+  border-radius: 4px;
+  padding: 16px;
+}
 .table-header { display:flex; justify-content:space-between; margin-bottom:12px; align-items:center; }
+
+@media (max-width: 640px) {
+  .proxy-group-table {
+    max-width: 100%;
+    padding: 12px;
+  }
+  .drag-row {
+    flex-wrap: wrap;
+    padding: 8px;
+  }
+  .drag-col {
+    min-width: 100px;
+    flex: 1 1 auto;
+  }
+  .name-col { min-width: 120px; }
+  .type-col { min-width: 90px; }
+  .proxies-col { min-width: 200px; }
+  .exclude-col { min-width: 120px; }
+  .use-col { min-width: 140px; }
+  .actions-col {
+    min-width: 140px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .actions-col .el-button {
+    min-width: 32px;
+    min-height: 32px;
+    padding: 8px 10px;
+    font-size: 16px;
+  }
+  .drag-handle {
+    width: 32px;
+    font-size: 20px;
+    touch-action: none;
+  }
+  .drag-row {
+    padding: 12px;
+  }
+}
 .drag-list { border:1px solid #e4e7ed; border-radius:4px; overflow:hidden; }
 .drag-row {
   display:flex; align-items:center; padding:8px 12px; border-bottom:1px solid #f0f0f0;
@@ -227,6 +451,7 @@ const onDrag = () => { _syncing=true; emit("update", "proxy-groups", [...localGr
 }
 .drag-row:last-child { border-bottom:none; }
 .drag-row:hover { background:#f5f7fa; }
+.drag-row.has-use { border-left:3px solid #409eff; }
 .drag-row.has-exclude { border-left:3px solid #e6a23c; }
 .ghost { opacity:0.4; background:#e6f7ff; }
 .drag-handle { cursor:grab; color:#bbb; font-size:18px; width:24px; text-align:center; user-select:none; flex-shrink:0; }
@@ -236,5 +461,6 @@ const onDrag = () => { _syncing=true; emit("update", "proxy-groups", [...localGr
 .type-col { width:90px; flex-shrink:0; }
 .proxies-col { flex:1; min-width:200px; }
 .exclude-col { width:120px; flex-shrink:0; }
+.use-col { width:140px; flex-shrink:0; }
 .actions-col { width:160px; flex-shrink:0; text-align:right; }
 </style>

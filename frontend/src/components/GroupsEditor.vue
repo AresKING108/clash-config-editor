@@ -50,7 +50,7 @@
         <el-form-item label="类型">
           <el-select v-model="form.type" @change="onTypeChange">
             <el-option label="手动选择 (select)" value="select" />
-            <el-option label="自动测速 (url-test)" value="url-test" />
+            <el-option label="延迟最低 (url-test)" value="url-test" />
             <el-option label="故障转移 (fallback)" value="fallback" />
             <el-option label="负载均衡 (load-balance)" value="load-balance" />
           </el-select>

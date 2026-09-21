@@ -1,6 +1,6 @@
 {
   "name": "clash-config-editor-frontend",
-  "version": "1.6.1",
+  "version": "1.6.8",
   "type": "module",
   "scripts": {
     "dev": "vite",

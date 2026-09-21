@@ -1205,14 +1205,25 @@ app.post('/api/router/reload', async (req, res) => {
     }
 
     if (srv === 'openclash' || srv === 'all') {
-      // 取激活配置名 → secret 从 root 运行副本解析（OpenClash 注入版）→ path 方式重载 config/ 源文件
+      // 取激活配置名 → secret 从 root 运行副本解析（OpenClash 注入版）
+      // 用 payload 合并方式重载：以运行副本为基（含 dns/tun 注入段），config/ 源用户段覆盖，
+      // 避免 path 方式直接加载 config/ 源丢 dns/tun 段 → 全 LAN DNS 断（2026-08-21 实测，08-22 补修 reload 分支）
       const activeRes = await runSSH('basename $(readlink /etc/openclash/cache.db 2>/dev/null) .db 2>/dev/null || echo unknown', 10000);
       const name = activeRes.stdout.trim();
       if (!name || name === 'unknown') throw new Error('无法确定当前激活的 OpenClash 配置');
       const rootPath = '/etc/openclash/' + name + '.yaml';
       const catRes = await sshStdio('cat ' + quoteRemote(rootPath), { timeout: 15000 });
       const secret = extractClashSecret(catRes.stdout) || await getClashSecret();
-      const code = await clashReload({ data: { path: '/etc/openclash/config/' + name + '.yaml' }, secret, port: extractClashPort(catRes.stdout) || 9090 });
+      const port = extractClashPort(catRes.stdout) || 9090;
+      // 读 config/ 源作为用户可编辑段
+      const localPath = '/etc/openclash/config/' + name + '.yaml';
+      const catLocal = await sshStdio('cat ' + quoteRemote(localPath), { timeout: 15000 });
+      const rootCfg = yaml.load(catRes.stdout) || {};
+      const localCfg = yaml.load(catLocal.stdout) || {};
+      const merged = { ...rootCfg, ...localCfg };
+      let yc = yaml.dump(merged, { indent: 2, lineWidth: -1, noRefs: true });
+      yc = yc.replace(/external-ui:.*/g, 'external-ui: /etc/openclash/ui');
+      const code = await clashReload({ data: { payload: yc }, secret, port });
       output.push('openclash ' + name + ': HTTP ' + code);
     }
 
@@ -1245,6 +1256,23 @@ app.get('/api/router/subconverter-status', async (req, res) => {
 
   }
 
+});
+
+// 获取 proxy-provider 的节点名列表
+app.get('/api/router/proxy-provider-nodes/:providerName', async (req, res) => {
+  try {
+    const { providerName } = req.params;
+    if (!providerName || !/^[\w\-\.]+$/.test(providerName)) {
+      return res.status(400).json({ error: 'Invalid provider name' });
+    }
+    const providerPath = '/etc/openclash/proxy_provider/' + providerName + '.yaml';
+    const { stdout } = await sshStdio('cat ' + quoteRemote(providerPath), { timeout: 10000 });
+    const providerCfg = yaml.load(stdout) || {};
+    const nodes = (providerCfg.proxies || []).map(p => p.name).filter(Boolean);
+    res.json({ nodes });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.get('/api/*', (req, res) => {

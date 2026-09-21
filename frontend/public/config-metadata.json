@@ -434,7 +434,7 @@
         },
         {
           "type": "url-test",
-          "label": "自动测速",
+          "label": "延迟最低",
           "fields": [
             {"key": "name", "label": "名称", "type": "string", "required": true},
             {"key": "proxies", "label": "代理列表", "type": "array", "required": true},

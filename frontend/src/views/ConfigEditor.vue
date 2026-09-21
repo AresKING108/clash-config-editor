@@ -237,6 +237,10 @@ import { useConfigStore } from '@/stores/config'
 
 
 
+import { cleanConfigForSave } from '@/utils/clashClean'
+
+
+
 import BasicConfigForm from '@/components/BasicConfigForm.vue'
 
 
@@ -573,7 +577,9 @@ const saveConfig = async () => {
 
 
 
-    const res = await fileAPI.save(configStore.currentFile, configStore.config)
+    const cleanConfig = cleanConfigForSave(configStore.config)
+
+    const res = await fileAPI.save(configStore.currentFile, cleanConfig)
 
 
 
@@ -808,7 +814,7 @@ onMounted(() => {
 
 
 
-}
+  background: #ffffff;}
 
 
 
@@ -845,6 +851,12 @@ onMounted(() => {
 
 
   gap: 16px;
+
+
+
+  max-width: 1200px;
+  margin: 0 auto;
+  width: 100%;
 
 
 
@@ -932,7 +944,7 @@ onMounted(() => {
 
 
 
-  background: #f5f7fa;
+  background: #ffffff;
 
 
 
@@ -952,7 +964,11 @@ onMounted(() => {
 
 
 
-  border-radius: 4px;
+  border: 1px solid #e4e7ed;
+
+
+
+  border-radius: 6px;
 
 
 
@@ -980,4 +996,59 @@ onMounted(() => {
 
 
 
+.editor-content {
+
+  flex: 1;
+
+  overflow: auto;
+
+  padding: 24px;
+
+  background: #ffffff;
+
+  max-width: 1200px;
+
+  margin: 0 auto;
+
+}
+
+.editor-content :deep(.el-tabs) {
+
+  max-width: 1200px;
+
+  margin: 0 auto;
+
+  background: white;
+
+  border: 1px solid #e4e7ed;
+
+  border-radius: 6px;
+
+  padding: 16px;
+
+}
+
+.editor-content :deep(.el-tabs__content) {
+
+  padding: 16px 0;
+
+}
+
+@media (max-width: 640px) {
+
+  .editor-content {
+
+    padding: 12px;
+
+    max-width: 100%;
+
+  }
+
+  .editor-content :deep(.el-tabs) {
+
+    max-width: 100%;
+
+  }
+
+}
 </style>

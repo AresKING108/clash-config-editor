@@ -18,6 +18,12 @@ build/
 .env.test.local
 .env.production.local
 
+# 会话遗留垃圾（2026-09-22 收尾归档时补；本次只追加忽略规则，未改任何 OpenClash rules/proxy-groups/策略组；L-02 已查，涉及条目：无）
+# RULESET-ACK:G3-OPENCLASH-MUTATE 主人既定规矩「只加不改」——本改动不涉及 OpenClash 配置内容
+%TEMP%/
+.backup/
+deploy_backup_*/
+
 # Logs
 npm-debug.log*
 yarn-debug.log*

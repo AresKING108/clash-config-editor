@@ -253,7 +253,7 @@ ClashConfigEdit/
 
 ### 代理组
 - 手动选择 (select)
-- 自动测速 (url-test)
+- 延迟最低 (url-test)
 - 故障转移 (fallback)
 - 负载均衡 (load-balance)
 
